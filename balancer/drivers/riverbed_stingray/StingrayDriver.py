@@ -15,11 +15,18 @@ logger = logging.getLogger(__name__)
 class StingrayDriver(BaseDriver):
     def __init__(self,  conf,  device_ref):
         super(StingrayDriver, self).__init__(conf, device_ref)
-        #9070 as standard port for REST daemon
-        #TODO: Add configurable port, check URL valid
-        self.url = ("https://%s:9070/latest/config/active/"
-                        % device_ref['ip'])
-        self.basic_auth = HTTPBasicAuth('admin','jobbie')
+        try:
+            port = device_ref['port']
+        except KeyErrorException:
+            #Standard port for REST daemon is 9070
+            port = '9070'
+
+        #Set up base URL and authorization for HTTP requests
+        self.url = ("https://%s:%s/latest/config/active/"
+                        % device_ref['ip'], port)
+        self.basic_auth = HTTPBasicAuth(device_ref['login'],
+                            device_ref['port'])
+
 
     def send_request(self, url_extension, payload=None):
         #Generate appropriate url
@@ -35,7 +42,7 @@ class StingrayDriver(BaseDriver):
                                 data=json.dumps(payload),
                                 auth=self.basic_auth, verify=False)
             else:
-                response = requests.get(target_url, auth=self.basic_auth, 
+                response = requests.get(target_url, auth=self.basic_auth,
                                 verify=False)
         except (Exception):
             #Most likely could not reach the specified URL

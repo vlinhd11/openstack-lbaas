@@ -8,6 +8,9 @@ from balancer.drivers.riverbed_stingray.StingrayDriver import StingrayDriver
 dev = {'ip': '10.62.166.27', 'login': 'admin',
         'password': 'jobbie'}
 
+dev_with_port = {'ip': '10.62.166.27', 'port':'9090'
+        'login': 'admin', 'password': 'jobbie'}
+
 conf = []
 
 driver = StingrayDriver(conf, dev)
