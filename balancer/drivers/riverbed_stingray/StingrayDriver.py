@@ -1,35 +1,60 @@
 # vim: tabstop=4 shiftwidth=4 softtabstop=4
 
-# Copyright 2012 OpenStack LLC.
-# All Rights Reserved.
-#
-#    Licensed under the Apache License, Version 2.0 (the "License"); you may
-#    not use this file except in compliance with the License. You may obtain
-#    a copy of the License at
-#
-#         http://www.apache.org/licenses/LICENSE-2.0
-#
-#    Unless required by applicable law or agreed to in writing, software
-#    distributed under the License is distributed on an "AS IS" BASIS, WITHOUT
-#    WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied. See the
-#    License for the specific language governing permissions and limitations
-#    under the License.
 import logging
+import base64
+import urlparse
+import json
+import requests
+from requests.auth import HTTPBasicAuth
 
 from balancer.drivers.base_driver import BaseDriver
 
 logger = logging.getLogger(__name__)
 
 
-class DummyStingrayDriver(BaseDriver):
+class StingrayDriver(BaseDriver):
+    def __init__(self,  conf,  device_ref):
+        super(StingrayDriver, self).__init__(conf, device_ref)
+        #9070 as standard port for REST daemon
+        #TODO: Add configurable port, check URL valid
+        self.url = ("https://%s:9070/latest/config/active/"
+                        % device_ref['ip'])
+        self.basic_auth = HTTPBasicAuth('admin','jobbie')
+
+    def send_request(self, url_extension, payload=None):
+        #Generate appropriate url
+        target_url = urlparse.urljoin(self.url, url_extension)
+        #Create headers dictionary
+        headers = {'Content-Type': 'application/json'}
+        try:
+            #Send request
+            if payload is not None:
+                '''Add in support for POST later
+                    PUT specified by Stingray API'''
+                response = requests.put(target_url, headers=headers,
+                                data=json.dumps(payload),
+                                auth=self.basic_auth, verify=False)
+            else:
+                response = requests.get(target_url, auth=self.basic_auth, 
+                                verify=False)
+        except (Exception):
+            #Most likely could not reach the specified URL
+            raise
+
+        logger.debug("Data from Stingray:\n" + response.text)
+        #Make sure error code is acceptable
+        response.raise_for_status()
+
     def import_certificate_or_key(self):
         logger.debug("Called DummyStingrayDriver.importCertificatesAndKeys().")
 
     def create_ssl_proxy(self, ssl_proxy):
-        logger.debug("Called DummyStingrayDriver.createSSLProxy(%r).", ssl_proxy)
+        logger.debug("Called DummyStingrayDriver.createSSLProxy(%r).",
+                     ssl_proxy)
 
     def delete_ssl_proxy(self, ssl_proxy):
-        logger.debug("Called DummyStingrayDriver.deleteSSLProxy(%r).", ssl_proxy)
+        logger.debug("Called DummyStingrayDriver.deleteSSLProxy(%r).",
+                     ssl_proxy)
 
     def add_ssl_proxy_to_virtual_ip(self, vip, ssl_proxy):
         logger.debug("Called DummyStingrayDriver.deleteSSLProxy(%r, %r).",
@@ -50,14 +75,16 @@ class DummyStingrayDriver(BaseDriver):
                      serverfarm, rserver)
 
     def activate_real_server_global(self, rserver):
-        logger.debug("Called DummyStingrayDriver.activateRServerGlobal(%r).", rserver)
+        logger.debug("Called DummyStingrayDriver.activateRServerGlobal(%r).",
+                     rserver)
 
     def suspend_real_server(self, serverfarm, rserver):
         logger.debug("Called DummyStingrayDriver.suspendRServer(%r, %r).",
                      serverfarm, rserver)
 
     def suspend_real_server_global(self, rserver):
-        logger.debug("Called DummyStingrayDriver.suspendRServerGlobal(%r).", rserver)
+        logger.debug("Called DummyStingrayDriver.suspendRServerGlobal(%r).",
+                     rserver)
 
     def create_probe(self, probe):
         logger.debug("Called DummyStingrayDriver.createProbe(%r).", probe)
@@ -66,10 +93,12 @@ class DummyStingrayDriver(BaseDriver):
         logger.debug("Called DummyStingrayDriver.deleteProbe(%r).", probe)
 
     def create_server_farm(self, serverfarm, predictor):
-        logger.debug("Called DummyStingrayDriver.createServerFarm(%r).", serverfarm)
+        logger.debug("Called DummyStingrayDriver.createServerFarm(%r).",
+                     serverfarm)
 
     def delete_server_farm(self, serverfarm):
-        logger.debug("Called DummyStingrayDriver.deleteServerFarm(%r).", serverfarm)
+        logger.debug("Called DummyStingrayDriver.deleteServerFarm(%r).",
+                     serverfarm)
 
     def add_real_server_to_server_farm(self, serverfarm, rserver):
         logger.debug("Called DummyStingrayDriver.addRServerToSF(%r, %r).",
@@ -88,10 +117,12 @@ class DummyStingrayDriver(BaseDriver):
                      serverfarm, probe)
 
     def create_stickiness(self, sticky):
-        logger.debug("Called DummyStingrayDriver.createStickiness(%r).", sticky)
+        logger.debug("Called DummyStingrayDriver.createStickiness(%r).",
+                     sticky)
 
     def delete_stickiness(self, sticky):
-        logger.debug("Called DummyStingrayDriver.deleteStickiness(%r).", sticky)
+        logger.debug("Called DummyStingrayDriver.deleteStickiness(%r).",
+                     sticky)
 
     def create_virtual_ip(self, vip, serverfarm):
         logger.debug("Called DummyStingrayDriver.createVIP(%r, %r).",
