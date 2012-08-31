@@ -66,6 +66,19 @@ try:
 except:
     pass
 
+# use a set so we have no duplicates
+install_requires = set()
+for filename in ['tools/pip-requires', 'tools/test-requires']:
+    with open(filename) as f:
+        for pkg in f:
+            pkg = pkg.strip()
+            try:
+                pkg, _comment = pkg.split('#', 1)
+            except ValueError:
+                pass
+
+            if len(pkg) > 0:
+                install_requires.add(pkg)
 
 setup(
     name='balancer',
@@ -86,4 +99,5 @@ setup(
         'Programming Language :: Python :: 2.6',
         'Environment :: No Input/Output (Daemon)',
     ],
-    scripts=['bin/balancer-api'])
+    scripts=['bin/balancer-api'],
+    install_requires=list(install_requires))
