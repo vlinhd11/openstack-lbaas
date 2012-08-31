@@ -2,6 +2,9 @@ import balancer.core.commands as cmd
 import unittest
 import mock
 import types
+import logging
+
+LOG = logging.getLogger(__name__)
 
 
 class TestDecorators(unittest.TestCase):
@@ -142,6 +145,8 @@ class TestRserver(unittest.TestCase):
         cmd.create_rserver(self.ctx, self.rs)
         self.assertTrue(self.ctx.device.create_real_server.called)
         self.assertTrue(mock_func.called)
+        mock_func.assert_called_once_with(self.ctx.conf,
+                                          self.rs['id'], self.rs)
 
     @mock.patch("balancer.db.api.server_update")
     def test_create_rserver_2(self, mock_func):
@@ -160,37 +165,49 @@ class TestRserver(unittest.TestCase):
         rollback_fn(False)
         self.assertTrue(self.ctx.device.delete_real_server.called)
         self.assertTrue(mock_func.called)
+        self.assertTrue(mock_func.call_count == 2)
+        mock_func.assert_called_with(self.ctx.conf,
+                                     self.rs['id'], self.rs)
 
     @mock.patch("balancer.db.api.server_update")
     @mock.patch("balancer.db.api.server_get_all_by_parent_id")
     def test_delete_rserver_1(self, mock_f1, mock_f2):
-        """rs empty, len rss > 0"""
+        """rs parent_id empty, len rss > 0"""
         mock_f1.return_value = ({'id': 2}, {'id': 3})
         cmd.delete_rserver(self.ctx, self.rs)
         self.assertTrue(self.ctx.device.delete_real_server.called,
                 "ctx_delete_rs not called")
         self.assertTrue(mock_f2.called, "server_upd not called")
+        self.assertTrue(mock_f2.call_count == 3)
+        mock_f2.assert_any_call(self.ctx.conf, 2, {'parent_id': 3})
+        mock_f2.assert_any_call(self.ctx.conf, 3, {'parent_id': 3})
+        mock_f2.assert_any_call(self.ctx.conf, 3, {'parent_id': '',
+                                                   'deployed': 'True'})
         self.assertTrue(self.ctx.device.create_real_server.called,
                 "ctx_create_rs not called")
         self.assertNotEquals(len(mock_f1.return_value), 0)
 
     @mock.patch("balancer.db.api.server_get_all_by_parent_id")
-    @mock.patch("balancer.db.api.server_get")
+    @mock.patch("balancer.db.api.server_update")
     def test_delete_rserver_2(self, mock_f1, mock_f2):
-        """rs not empty, rss not empty"""
+        """rs parent_id not empty"""
         self.rs['parent_id'] = 1
         cmd.delete_rserver(self.ctx, self.rs)
-        self.assertFalse(self.ctx.device.delete_real_server.called,\
-                "delete_rserver called")
+        self.assertFalse(self.ctx.device.delete_real_server.called,
+                         "delete_rserver called")
+        self.assertFalse(mock_f1.called)
+        self.assertFalse(mock_f2.called)
 
     @mock.patch("balancer.db.api.server_get_all_by_parent_id")
     @mock.patch("balancer.db.api.server_update")
     def test_delete_rserver_3(self, mock_f1, mock_f2):
-        """rs empty, rss empty"""
+        """rs parent_id empty, rss empty"""
         mock_f2.return_value = ()
         cmd.delete_rserver(self.ctx, self.rs)
-        self.assertFalse(mock_f1.called,\
-                "server_update called")
+        self.assertFalse(self.ctx.device.create_real_server.called,
+                         "create_rserver called")
+        self.assertTrue(self.ctx.device.delete_real_server.called)
+        self.assertFalse(mock_f1.called, "server_update called")
 
 
 class TestSticky(unittest.TestCase):
@@ -204,11 +221,17 @@ class TestSticky(unittest.TestCase):
     def test_create_sticky(self, mock_upd):
         cmd.create_sticky(self.ctx, self.sticky)
         self.assertTrue(mock_upd.called, "upd not called")
+        self.assertTrue(self.ctx.device.create_stickiness.called)
+        mock_upd.assert_called_once_with(self.ctx.conf, self.sticky['id'],
+                                         self.sticky)
 
     @mock.patch("balancer.db.api.sticky_update")
     def test_delete_sticky(self, mock_upd):
         cmd.delete_sticky(self.ctx, self.sticky)
         self.assertTrue(mock_upd.called, "upd not called")
+        self.assertTrue(self.ctx.device.delete_stickiness.called)
+        mock_upd.assert_called_once_with(self.ctx.conf, self.sticky['id'],
+                                         self.sticky)
 
 
 class TestProbe(unittest.TestCase):
@@ -219,22 +242,32 @@ class TestProbe(unittest.TestCase):
     @mock.patch("balancer.core.commands")
     @mock.patch("balancer.db.api.probe_update")
     def test_create_probe_0(self, mock_f1, mock_f2):
+        '''No exception should raise'''
         cmd.create_probe(self.ctx, self.probe)
         self.assertTrue(self.ctx.device.create_probe.called)
         self.assertTrue(mock_f1.called)
+        self.assertFalse(mock_f2.called)
+        mock_f1.assert_called_once_with(self.ctx.conf, self.probe['id'],
+                {'deployed': True})
 
     @mock.patch("balancer.core.commands.delete_probe")
     @mock.patch("balancer.db.api.probe_update")
     def test_create_probe_1(self, mock_f1, mock_f2):
+        '''Exception raises'''
         cmd.create_probe(self.ctx, self.probe)
         rollback_fn = self.ctx.add_rollback.call_args[0][0]
         rollback_fn(False)
         self.assertTrue(mock_f2.called)
+        mock_f2.assert_called_once_with(self.ctx, self.probe)
 
     @mock.patch("balancer.db.api.probe_update")
     def test_delete_probe(self, mock_upd):
         cmd.delete_probe(self.ctx, self.probe)
+        self.assertTrue(self.ctx.device.delete_probe.called)
+        self.assertTrue(self.ctx.device.delete_probe.call_count == 1)
         self.assertTrue(mock_upd.called, "upd not called")
+        mock_upd.assert_called_once_with(self.ctx.conf, self.probe['id'],
+                                         self.probe)
 
 
 class TestVip(unittest.TestCase):
@@ -250,6 +283,9 @@ class TestVip(unittest.TestCase):
         cmd.create_vip(self.ctx, self.vip, self.server_farm)
         self.assertTrue(self.ctx.device.create_virtual_ip.called)
         self.assertTrue(mock_f1.called)
+        self.assertFalse(mock_f2.called)
+        mock_f1.assert_called_once_with(self.ctx.conf, self.vip['id'],
+                {'deployed': True})
 
     @mock.patch("balancer.core.commands.delete_vip")
     @mock.patch("balancer.db.api.virtualserver_update")
@@ -259,11 +295,15 @@ class TestVip(unittest.TestCase):
         rollback_fn = self.ctx.add_rollback.call_args[0][0]
         rollback_fn(False)
         self.assertTrue(mock_f2.called)
+        mock_f2.assert_called_once_with(self.ctx, self.vip)
 
     @mock.patch("balancer.db.api.virtualserver_update")
     def test_delete_vip(self, mock_upd):
         cmd.delete_vip(self.ctx, self.vip)
+        self.assertTrue(self.ctx.device.delete_virtual_ip.called)
         self.assertTrue(mock_upd.called, "upd not called")
+        mock_upd.assert_called_once_with(self.ctx.conf, self.vip['id'],
+                                         self.vip)
 
 
 class TestServerFarm(unittest.TestCase):
@@ -288,9 +328,12 @@ class TestServerFarm(unittest.TestCase):
         """No exception"""
         cmd.create_server_farm(self.ctx, self.server_farm)
         self.assertTrue(self.ctx.device.create_server_farm.called)
-        self.assertTrue(mock_f2.called)
         self.assertFalse(mock_f1.called)
+        self.assertTrue(mock_f2.called)
         self.assertTrue(mock_f3.called)
+        mock_f2.assert_called_once_with(self.ctx.conf, self.server_farm['id'],
+                {'deployed': True})
+        mock_f3.assert_called_once_with(self.ctx.conf, self.server_farm['id'])
 
     @mock.patch("balancer.db.api.predictor_get_all_by_sf_id")
     @mock.patch("balancer.db.api.serverfarm_update")
@@ -301,33 +344,37 @@ class TestServerFarm(unittest.TestCase):
         rollback_fn = self.ctx.add_rollback.call_args[0][0]
         rollback_fn(False)
         self.assertTrue(mock_f1.called)
+        mock_f1.assert_called_once_with(self.ctx, self.server_farm)
 
     @mock.patch("balancer.db.api.serverfarm_update")
     def test_delete_server_farm(self, mock_upd):
         cmd.delete_server_farm(self.ctx, self.server_farm)
+        self.assertTrue(self.ctx.device.delete_server_farm.called)
         self.assertTrue(mock_upd.called, "upd not called")
+        mock_upd.assert_called_once_with(self.ctx.conf, self.server_farm['id'],
+                                         self.server_farm)
 
     def test_add_rserver_to_server_farm_0(self):
         "No exception, if statement = True"
         cmd.add_rserver_to_server_farm(self.ctx, self.server_farm,
-                self.rserver)
+                                       self.rserver)
         self.assertTrue(self.ctx.device.add_real_server_to_server_farm.called)
         self.assertEquals(self.rserver['name'], self.rserver['parent_id'])
 
     def test_add_rserver_to_server_farm_1(self):
         "Exception"
         cmd.add_rserver_to_server_farm(self.ctx, self.server_farm,
-                self.rserver)
+                                       self.rserver)
         rollback_fn = self.ctx.add_rollback.call_args[0][0]
         rollback_fn(False)
         self.assertTrue(
             self.ctx.device.delete_real_server_from_server_farm.called)
 
     def test_delete_rserver_from_server_farm(self):
-        cmd.delete_rserver_from_server_farm(self.ctx, self.server_farm,\
+        cmd.delete_rserver_from_server_farm(self.ctx, self.server_farm,
                                             self.rserver)
         self.assertTrue(
-                self.ctx.device.delete_real_server_from_server_farm.called,\
+                self.ctx.device.delete_real_server_from_server_farm.called,
                 "method not called")
 
     def test_add_probe_to_server_farm_0(self):
@@ -343,28 +390,27 @@ class TestServerFarm(unittest.TestCase):
         self.assertTrue(self.ctx.device.delete_probe_from_server_farm.called)
 
     def test_remove_probe_from_server_farm(self):
-        cmd.remove_probe_from_server_farm(self.ctx, self.server_farm,\
+        cmd.remove_probe_from_server_farm(self.ctx, self.server_farm,
                                           self.probe)
-        self.assertTrue(
-                self.ctx.device.delete_probe_from_server_farm.called,\
-                "method not called")
+        self.assertTrue(self.ctx.device.delete_probe_from_server_farm.called,
+                        "method not called")
 
     def test_activate_rserver(self):
         cmd.activate_rserver(self.ctx, self.server_farm, self.rserver)
-        self.assertTrue(
-                self.ctx.device.activate_real_server.called,\
-                "method not called")
+        self.assertTrue(self.ctx.device.activate_real_server.called,
+                        "method not called")
 
     def test_suspend_rserver(self):
         cmd.suspend_rserver(self.ctx, self.server_farm, self.rserver)
-        self.assertTrue(
-                self.ctx.device.suspend_real_server.called,\
-                "method not called")
+        self.assertTrue(self.ctx.device.suspend_real_server.called,
+                        "method not called")
 
 
 class TestLoadbalancer(unittest.TestCase):
     def setUp(self):
+        value = mock.MagicMock()
         self.ctx = mock.MagicMock()
+        self.conf = mock.MagicMock()
         self.rserver = mock.MagicMock()
         self.probe = mock.MagicMock()
         self.sticky = mock.MagicMock()
@@ -374,21 +420,121 @@ class TestLoadbalancer(unittest.TestCase):
         self.balancer = mock.MagicMock(probes=self.call_list,
                rs=self.call_list, vips=self.call_list,
                sf=mock.MagicMock(_sticky=self.call_list))
+        self.dict_list = [{'id': 1, 'name': 'name', 'extra': {
+            'stragearg': value, 'anotherarg': value}, },
+            {'id': 2, 'name': 'name0', 'extra': {
+                'stragearg': value, 'anotherarg': value}, }]
+        self.dictionary = {'id': 1, 'name': 'name', 'extra': {
+            'stragearg': value, 'anotherarg': value}, }
 
-    @mock.patch("balancer.core.commands.add_probe_to_server_farm")
-    @mock.patch("balancer.core.commands.create_probe")
+    @mock.patch("balancer.db.api.virtualserver_pack_extra")
+    @mock.patch("balancer.db.api.virtualserver_create")
+    @mock.patch("balancer.core.commands.create_vip")
     @mock.patch("balancer.core.commands.create_server_farm")
+    @mock.patch("balancer.db.api.predictor_create")
+    @mock.patch("balancer.db.api.serverfarm_create")
+    @mock.patch("balancer.db.api.server_pack_extra")
+    @mock.patch("balancer.db.api.server_create")
     @mock.patch("balancer.core.commands.create_rserver")
     @mock.patch("balancer.core.commands.add_rserver_to_server_farm")
+    @mock.patch("balancer.db.api.probe_pack_extra")
+    @mock.patch("balancer.db.api.probe_create")
+    @mock.patch("balancer.core.commands.create_probe")
+    @mock.patch("balancer.core.commands.add_probe_to_server_farm")
+    @mock.patch("balancer.db.api.unpack_extra")
+    def test_create_loadbalancer_0(self, *mocks):
+        """All here"""
+        mocks[0].return_value = {'id': 1,
+            'nodes': [{'name': 'node0'}, {'name': 'node1'}],
+            'healthMonitoring': [{'name': 'probe0'}, {"name": "probe1"}],
+            'virtualIps': [{'name': "vip0"}, {'name': "vip1"}]}
+        cmd.create_loadbalancer(self.ctx, self.balancer, self.dict_list,
+                self.dict_list, self.dict_list)
+        for mok in mocks:
+            self.assertTrue(mok.called, "This mock didn't call %s"
+                    % mok._mock_name)
+
+    @mock.patch("balancer.db.api.virtualserver_pack_extra")
+    @mock.patch("balancer.db.api.virtualserver_create")
     @mock.patch("balancer.core.commands.create_vip")
-    def test_create_loadbalancer(self, mf1, mf2, mf3, mf4, mf5, mf6):
-        cmd.create_loadbalancer(self.ctx, self.balancer)
-        self.assertTrue(mf5.called, "create_probe not called")
-        self.assertTrue(mf4.called, "create_server_farm not called")
-        self.assertTrue(mf3.called, "create_rserver not called")
-        self.assertTrue(mf2.called, "add_rserver_server_farm not called")
-        self.assertTrue(mf6.called, "add_probe_to_server_farm not called")
-        self.assertTrue(mf1.called, "create_vip not called")
+    @mock.patch("balancer.core.commands.create_server_farm")
+    @mock.patch("balancer.db.api.predictor_create")
+    @mock.patch("balancer.db.api.serverfarm_create")
+    @mock.patch("balancer.db.api.server_create")
+    @mock.patch("balancer.core.commands.create_rserver")
+    @mock.patch("balancer.core.commands.add_rserver_to_server_farm")
+    @mock.patch("balancer.db.api.probe_pack_extra")
+    @mock.patch("balancer.db.api.probe_create")
+    @mock.patch("balancer.core.commands.create_probe")
+    @mock.patch("balancer.core.commands.add_probe_to_server_farm")
+    @mock.patch("balancer.db.api.unpack_extra")
+    def test_create_loadbalancer_1(self, *mocks):
+        """Nodes not here"""
+        cmd.create_loadbalancer(self.ctx, self.balancer, [],
+                self.dict_list, self.dict_list)
+        for mok in mocks[0:4]:
+            self.assertTrue(mok.called, "This mock didn't call %s"
+                    % mok._mock_name)
+        for mok in mocks[5:7]:
+            self.assertFalse(mok.called, "This mock called %s"
+                    % mok._mock_name)
+        for mok in mocks[8:14]:
+            self.assertTrue(mok.called, "This mock didn't call %s"
+                    % mok._mock_name)
+
+    @mock.patch("balancer.db.api.virtualserver_pack_extra")
+    @mock.patch("balancer.db.api.virtualserver_create")
+    @mock.patch("balancer.core.commands.create_vip")
+    @mock.patch("balancer.core.commands.create_server_farm")
+    @mock.patch("balancer.db.api.predictor_create")
+    @mock.patch("balancer.db.api.serverfarm_create")
+    @mock.patch("balancer.db.api.server_create")
+    @mock.patch("balancer.core.commands.create_rserver")
+    @mock.patch("balancer.core.commands.add_rserver_to_server_farm")
+    @mock.patch("balancer.db.api.probe_pack_extra")
+    @mock.patch("balancer.db.api.probe_create")
+    @mock.patch("balancer.core.commands.create_probe")
+    @mock.patch("balancer.core.commands.add_probe_to_server_farm")
+    @mock.patch("balancer.db.api.unpack_extra")
+    def test_create_loadbalancer_2(self, *mocks):
+        """probes not here"""
+        cmd.create_loadbalancer(self.ctx, self.balancer, self.dict_list,
+                [], self.dict_list)
+        for mok in mocks[0]:
+            self.assertTrue(mok.called, "This mock didn't call %s"
+                    % mok._mock_name)
+        for mok in mocks[1:4]:
+            self.assertFalse(mok.called, "This mock called %s"
+                    % mok._mock_name)
+        for mok in mocks[5:14]:
+            self.assertTrue(mok.called, "This mock didn't call %s"
+                    % mok._mock_name)
+
+    @mock.patch("balancer.db.api.virtualserver_pack_extra")
+    @mock.patch("balancer.db.api.virtualserver_create")
+    @mock.patch("balancer.core.commands.create_vip")
+    @mock.patch("balancer.core.commands.create_server_farm")
+    @mock.patch("balancer.db.api.predictor_create")
+    @mock.patch("balancer.db.api.serverfarm_create")
+    @mock.patch("balancer.db.api.server_pack_extra")
+    @mock.patch("balancer.db.api.server_create")
+    @mock.patch("balancer.core.commands.create_rserver")
+    @mock.patch("balancer.core.commands.add_rserver_to_server_farm")
+    @mock.patch("balancer.db.api.probe_pack_extra")
+    @mock.patch("balancer.db.api.probe_create")
+    @mock.patch("balancer.core.commands.create_probe")
+    @mock.patch("balancer.core.commands.add_probe_to_server_farm")
+    @mock.patch("balancer.db.api.unpack_extra")
+    def test_create_loadbalancer_3(self, *mocks):
+        """vips not here"""
+        cmd.create_loadbalancer(self.ctx, self.balancer, self.dict_list,
+                self.dict_list, [])
+        for mok in mocks[0:10]:
+            self.assertTrue(mok.called, "This mock didn't call %s"
+                    % mok._mock_name)
+        for mok in mocks[12:14]:
+            self.assertFalse(mok.called, "This mock called %s"
+                    % mok._mock_name)
 
     @mock.patch("balancer.core.commands.delete_sticky")
     @mock.patch("balancer.core.commands.remove_probe_from_server_farm")
@@ -397,37 +543,56 @@ class TestLoadbalancer(unittest.TestCase):
     @mock.patch("balancer.core.commands.delete_rserver")
     @mock.patch("balancer.core.commands.delete_rserver_from_server_farm")
     @mock.patch("balancer.core.commands.delete_vip")
-    def test_delete_loadbalancer(self, mf1, mf2, mf3, mf4, mf5, mf6, mf7):
+    @mock.patch("balancer.db.api.serverfarm_get_all_by_lb_id")
+    @mock.patch("balancer.db.api.virtualserver_get_all_by_sf_id")
+    @mock.patch("balancer.db.api.server_get_all_by_sf_id")
+    @mock.patch("balancer.db.api.probe_get_all_by_sf_id")
+    @mock.patch("balancer.db.api.sticky_get_all_by_sf_id")
+    @mock.patch("balancer.db.api.predictor_destroy_by_sf_id")
+    @mock.patch("balancer.db.api.server_destroy_by_sf_id")
+    @mock.patch("balancer.db.api.probe_destroy_by_sf_id")
+    @mock.patch("balancer.db.api.virtualserver_destroy_by_sf_id")
+    @mock.patch("balancer.db.api.sticky_destroy_by_sf_id")
+    @mock.patch("balancer.db.api.serverfarm_destroy")
+    @mock.patch("balancer.db.api.loadbalancer_destroy")
+    def test_delete_loadbalancer(self, *mocks):
+        for mok in mocks[7:11]:
+            mok.return_value = [{"dummy": '1'}, {"dummy": '2'}]
+        mocks[12].return_value = {'id': 1}
         cmd.delete_loadbalancer(self.ctx, self.balancer)
-        self.assertTrue(mf1.called, "delete_vip not called")
-        self.assertTrue(mf2.called, "delete_rserver_from_sf not called")
-        self.assertTrue(mf3.called, "delete_rserver")
-        self.assertTrue(mf5.called, "delete_probe not called")
-        self.assertTrue(mf6.called, "remove_probe_from_server_farm not called")
-        self.assertTrue(mf7.called, "delete_sticky not called")
-        self.assertTrue(mf4.called, "delete_server_farm not called")
+        for mok in mocks:
+            self.assertTrue(mok.called, "This mock didn't call %s"
+                    % mok._mock_name)
 
     @mock.patch("balancer.db.api.serverfarm_get_all_by_lb_id")
     @mock.patch("balancer.core.commands.create_server_farm")
     def test_update_loadbalancer(self, mock_func, mock_get):
         self.lb0 = mock.MagicMock()
+        mock_get.return_value = ['serverfarm']
         cmd.update_loadbalancer(self.ctx, self.balancer, self.lb0)
         self.assertTrue(mock_func.called, "function not called")
+        mock_func.assert_called_once_with(self.ctx, 'serverfarm')
 
     @mock.patch("balancer.core.commands.create_rserver")
     @mock.patch("balancer.core.commands.add_rserver_to_server_farm")
     def test_add_node_to_loadbalancer(self, mock_f1, mock_f2):
-        cmd.add_node_to_loadbalancer(self.ctx, self.balancer, self.rserver)
-        self.assertTrue(mock_f2.called, "create_rserver not called")
+        cmd.add_node_to_loadbalancer(self.ctx, self.balancer.sf, self.rserver)
         self.assertTrue(mock_f1.called, "add_rserver not called")
+        self.assertTrue(mock_f2.called, "create_rserver not called")
+        mock_f1.assert_called_once_with(self.ctx, self.balancer.sf,
+                                        self.rserver)
+        mock_f2.assert_called_once_with(self.ctx, self.rserver)
 
     @mock.patch("balancer.core.commands.delete_rserver")
     @mock.patch("balancer.core.commands.delete_rserver_from_server_farm")
     def test_remove_node_from_loadbalancer(self, mock_f1, mock_f2):
         cmd.remove_node_from_loadbalancer(
-                self.ctx, self.balancer, self.rserver)
+                self.ctx, self.balancer.sf, self.rserver)
         self.assertTrue(mock_f1.called, "delete_rserver_from_farm not called")
         self.assertTrue(mock_f2.called, "delete_rserver called")
+        mock_f1.assert_called_once_with(self.ctx, self.balancer.sf,
+                                        self.rserver)
+        mock_f2.assert_called_once_with(self.ctx, self.rserver)
 
     @mock.patch("balancer.core.commands.create_probe")
     @mock.patch("balancer.core.commands.add_probe_to_server_farm")
@@ -435,22 +600,29 @@ class TestLoadbalancer(unittest.TestCase):
         cmd.add_probe_to_loadbalancer(self.ctx, self.balancer, self.probe)
         self.assertTrue(mock_f1.called, "add_probe not called")
         self.assertTrue(mock_f2.called, "create_probe not called")
+        mock_f1.assert_called_once_with(self.ctx, self.balancer,
+                                        self.probe)
+        mock_f2.assert_called_once_with(self.ctx, self.probe)
 
     @mock.patch("balancer.core.commands.remove_probe_from_server_farm")
     @mock.patch("balancer.core.commands.delete_probe")
     def test_makeDeleteProbeFromLBChain(self, mock_f1, mock_f2):
         cmd.makeDeleteProbeFromLBChain(self.ctx, self.balancer, self.probe)
         self.assertTrue(mock_f1.called, "delete_probe not called")
-        self.assertTrue(mock_f2.called,\
-                "remove_probe_from_server_farm not called")
+        self.assertTrue(mock_f2.called,
+                        "remove_probe_from_server_farm not called")
+        mock_f1.assert_called_once_with(self.ctx, self.probe)
+        mock_f2.assert_called_once_with(self.ctx, self.balancer.sf, self.probe)
 
     @mock.patch("balancer.core.commands.create_sticky")
     def test_add_sticky_to_loadbalancer(self, mock_func):
         cmd.add_sticky_to_loadbalancer(self.ctx, self.balancer, self.sticky)
         self.assertTrue(mock_func.called, "create_sticky not called")
+        mock_func.assert_called_once_with(self.ctx, self.sticky)
 
     @mock.patch("balancer.core.commands.delete_sticky")
     def test_remove_sticky_from_loadbalancer(self, mock_func):
-        cmd.remove_sticky_from_loadbalancer(
-                self.ctx, self.balancer, self.sticky)
+        cmd.remove_sticky_from_loadbalancer(self.ctx, self.balancer,
+                                            self.sticky)
         self.assertTrue(mock_func.called, "delete_sticky not called")
+        mock_func.assert_called_once_with(self.ctx, self.sticky)
