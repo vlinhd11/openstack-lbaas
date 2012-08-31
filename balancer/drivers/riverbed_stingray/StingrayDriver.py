@@ -14,9 +14,8 @@ logger = logging.getLogger(__name__)
 class StingrayDriver(BaseDriver):
     def __init__(self,  conf,  device_ref):
         super(StingrayDriver, self).__init__(conf, device_ref)
-
-        #TODO: Have unique name here
-        self.name = 'placeholder2'
+        #Store
+        self.device_id = device_ref['id']
 
         #Standard port for REST daemon is 9070
         port = '9070'
@@ -33,17 +32,6 @@ class StingrayDriver(BaseDriver):
         self.basic_auth = HTTPBasicAuth(device_ref['user'],
                             device_ref['password'])
 
-        #Create Virtual Server for this Load balancing Service
-        self.default_vserver = {"properties": {
-            "enabled": "no",
-            "port": "8080",
-            "timeout": 40, 
-            "pool": "discard",
-            }
-        }
-
-        self.send_request('vservers/' + self.name, 'PUT',
-                              payload=self.default_vserver)
 
     def __del__(self):
         response = self.send_request('vservers/' + self.name, 'DELETE')
@@ -78,13 +66,15 @@ class StingrayDriver(BaseDriver):
                 response = requests.delete(target_url, headers=headers,
                                 auth=self.basic_auth, verify=False)
 
-        except (Exception):
+        except Exception:
             #Most likely could not reach the specified URL
             raise
 
         logger.debug("Data from Stingray:\n" + response.text)
         #Make sure error code is acceptable, ensures unit tests will fail
         response.raise_for_status()
+
+        return response
 
     def import_certificate_or_key(self):
         #SSL certificates/Licence keys?
@@ -141,35 +131,80 @@ class StingrayDriver(BaseDriver):
         logger.debug("Called DummyStingrayDriver.deleteProbe(%r).", probe)
 
     def create_server_farm(self, serverfarm, predictor):
+        ''' Set up virtual server and pool and connect the two
+        '''
+        #??Logical naming??
         #Create pool with no attached nodes
-        target = 'pools/' + serverfarm['name'] + '/'
+        target = 'pools/' + serverfarm['id'] + '/'
+        data = {"properties": {"monitors": "ping"}}
 
-        #serverfarm to applicable dictionary format
-        data = {'properties': {}}
-        #TODO: Take values from serverfarm here
+        self.send_request(target, 'PUT', data)
 
+        #Create Virtual Server for this Load balancing Service
+        self.default_vserver = {"properties": {
+            "enabled": "no",
+            "port": "8080",
+            "timeout": 40,
+            "pool": serverfarm['id'],
+            }
+        }
 
-        send_request(target, 'PUT', data)
+        target = 'vservers/' + serverfarm['id'] + '/'
+        self.send_request(target, 'PUT',
+                              payload=self.default_vserver)
 
     def delete_server_farm(self, serverfarm):
         #Delete pool referenced by serverfarm
-        target = 'pools/' + serverfarm['name'] + '/'
-        send_request(target, 'DELETE')
+        target = 'pools/' + serverfarm['id'] + '/'
+        self.send_request(target, 'DELETE')
 
     def add_real_server_to_server_farm(self, serverfarm, rserver):
+        logger.debug('creating')
+        logger.debug(rserver.address + ':' + rserver.port)
         #Add node to pool
-        target = 'pools/' + serverfarm['name']
+        target = 'pools/' + serverfarm['id'] + '/'
 
         #TODO: Get new version of REST so list syntax used.
+        #space seperated variable string for now.
+#ERROR
+        sf_current_json = self.send_request(target, 'GET').text
+        sf_current = json.loads(sf_current_json)
 
-        data = {'properties': {}}
-
-        send_request(target, 'PUT', data)
+        try:
+            nodelist = sf_current['properties']['nodes']
+        except KeyError:
+            nodelist = ''
+        #Add new node to list and put in correct dictionary form
+#probably
+        newnode = rserver.address + ':' + rserver.port + ' '
+        nodelist =  '"' + nodelist + newnode + '"'
+        data = {"properties": {"nodes": nodelist}}
+#SOMEWHERE HERE
+        self.send_request(target, 'PUT', data)
 
     def delete_real_server_from_server_farm(self, serverfarm, rserver):
+        logger.debug('deleting')
         #Remove node from pool
-        logger.debug("Called DummyStingrayDriver.deleteRServerFromSF(%r, %r).",
-                     serverfarm, rserver)
+        target = 'pools/' + serverfarm['id'] + '/'
+
+        #TODO: Get new version of REST so list syntax used.
+        #space seperated variable string for now.
+        sf_current_json = self.send_request(target, 'GET').text
+        sf_current = json.loads(sf_current_json)
+        try:
+            nodelist = sf_current['properties']['nodes']
+        except KeyError:
+            #Raise no server found exception?
+            nodelist = ''
+        '''Remove node from list, package existing nodes in
+        correct dictionary form
+        '''
+        nodelist.replace(rserver.address + ':' + rserver.port + ' ',
+                             '')
+        data = {"properties": {"nodes": nodelist}}
+
+        self.send_request(target, 'PUT', data)
+        logger.debug('PUT was from delete_real_server_from_server_farm')
 
     def add_probe_to_server_farm(self, serverfarm, probe):
         logger.debug("Called DummyStingrayDriver.addProbeToSF(%r, %r).",
