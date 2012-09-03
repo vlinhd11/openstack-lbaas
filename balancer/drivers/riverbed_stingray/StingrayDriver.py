@@ -234,6 +234,7 @@ class StingrayDriver(BaseDriver):
             response = self.send_request(target, 'DELETE')
         except HTTPError:
             #Traffic IP group may not exist, if so just continue
+            #FIXME: This cannot work this way under current version of requests
             if response.status_code == '404':
                 pass
             else:
@@ -246,7 +247,7 @@ class StingrayDriver(BaseDriver):
         '''
         #Set up variables for request
         target = 'pools/' + serverfarm['id'] + '/'
-        new_node = rserver.address + ':' + rserver.port + ' '
+        new_node = rserver['address'] + ':' + rserver['port'] + ' '
         pool_mod = {"properties": {
              "nodes": ''
             }
@@ -261,7 +262,7 @@ class StingrayDriver(BaseDriver):
         '''
         #Set up variables for request
         target = 'pools/' + serverfarm['id'] + '/'
-        node = rserver.address + ':' + rserver.port + ' '
+        node = rserver['address'] + ':' + rserver['port'] + ' '
         pool_mod = {"properties": {
              "nodes": ''
             }
@@ -269,7 +270,7 @@ class StingrayDriver(BaseDriver):
 
         #Modify dictionary and send PUT request with that dictionary
         pool_mod = self.rest_delete_from_list(target, 'nodes', node, pool_mod)
-        self.send_request(target, 'PUT', data)
+        self.send_request(target, 'PUT', pool_mod)
 
     def add_probe_to_server_farm(self, serverfarm, probe):
         logger.debug("Called DummyStingrayDriver.addProbeToSF(%r, %r).",
@@ -293,7 +294,7 @@ class StingrayDriver(BaseDriver):
         '''
         #Add support for masks and ports?
 
-        target = 'flipper/' + serverfarm.id + '/'
+        target = 'flipper/' + serverfarm['id'] + '/'
 
         try:
             #Add IP to existing traffic Ip group
@@ -302,21 +303,21 @@ class StingrayDriver(BaseDriver):
                 }
             }
             traffic_ip_mod = self.rest_delete_from_list(target, 'ipaddresses',
-                                            vip.address, traffic_ip_mod)
+                                            vip['address'], traffic_ip_mod)
 
         except HTTPError:
             #No traffic IP group exists, create one
             traffic_ip_new = {'properties' : {
-                'ipaddresses': vip.address,
+                'ipaddresses': vip['address'],
                 'machines': self.device_name
                 }
             }
             self.send_request(target, 'PUT', traffic_ip_new)
 
             #hook it up to the virtual server
-            vserver_target = 'vservers/' + serverfarm.id + '/'
+            vserver_target = 'vservers/' + serverfarm['id'] + '/'
             vserver_mod = {'properties': {
-                        'address':('!' + serverfarm.id),
+                        'address':('!' + serverfarm['id']),
                 }
             }
             self.send_request(vserver_target, 'PUT', vserver_mod)
@@ -324,6 +325,7 @@ class StingrayDriver(BaseDriver):
 
     def delete_virtual_ip(self, vip):
         #Traffic IP in our terminology
+        #TODO:
         logger.debug("Called DummyStingrayDriver.deleteVIP(%r).", vip)
 
     def get_statistics(self, serverfarm, rserver):

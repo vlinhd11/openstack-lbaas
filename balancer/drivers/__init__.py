@@ -6,7 +6,8 @@ drivers_opt = cfg.ListOpt('device_drivers',
         default=[
             #'ace=balancer.drivers.cisco_ace.ace_driver.AceDriver',
             #'haproxy=balancer.drivers.haproxy.HaproxyDriver.HaproxyDriver',
-            'stingray=balancer.drivers.riverbed_stingray.StingrayDriver.StingrayDriver'
+            ('stingray=balancer.drivers.riverbed_stingray'
+            '.StingrayDriver.StingrayDriver')
         ],
         help="Balancer devices' drivers.")
 
