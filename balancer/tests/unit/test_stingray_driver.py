@@ -108,6 +108,7 @@ probe_3 = {
     'expected': '200-204'
 }
 
+
 class StingrayDriverTestCase(unittest.TestCase):
 
     driver = StingrayDriver(conf, device)

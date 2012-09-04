@@ -12,10 +12,11 @@ from balancer.drivers.base_driver import BaseDriver
 
 logger = logging.getLogger(__name__)
 
+
 class StingrayDriver(BaseDriver):
-    ''' Most (all)  parameters can be found in db.models.py. They all inherit from
-    a class which implements the functions allowing for dictionary notation.
-    Using this notation allows for easy unit testing.
+    ''' Most (all?) parameters can be found in db.models.py. They all inherit
+    from a class which implements the functions allowing for dictionary
+    notation. Using this notation allows for easy unit testing.
     '''
 
     supported_probes = ()
@@ -43,12 +44,13 @@ class StingrayDriver(BaseDriver):
 
     def send_request(self, url_extension, method, payload=None):
         ''' Wrapper around the python requests library. Ensures that valiidity
-        of the SSL certificate is ignored and that requests include HTTP Basic Auth.
+        of the SSL certificate is ignored and that requests include HTTP Basic
+        Auth.
         '''
         #Generate appropriate url
         target_url = urlparse.urljoin(self.url, url_extension)
         #Create headers dictionary
-        #If-Match not implemented by REST team as of yet 
+        #If-Match not implemented by REST team as of yet
         headers = {'Content-Type': 'application/json',
                     'Accept': 'application/json',
                     'If-Match': 'NEW'}
@@ -80,7 +82,7 @@ class StingrayDriver(BaseDriver):
             raise
 
         logger.debug("Data from Stingray:\n" + response.text)
-        #Make sure request reported as successful.
+        #Make sure request reported as successful
         response.raise_for_status()
 
         return response
@@ -92,8 +94,8 @@ class StingrayDriver(BaseDriver):
         Stingray REST format. Can be used regardless of whether field currently
         exists.
         '''
-        #TODO: Get new version of REST so list syntax used.
-        #Requests data from Stingray and extract current list 
+        #TODO: Get new version of REST so list syntax used
+        #Requests data from Stingray and extract current list
         current_json = self.send_request(target, 'GET').text
         current = json.loads(current_json)
 
@@ -103,7 +105,7 @@ class StingrayDriver(BaseDriver):
             old_list = ''
 
         #Stored as space seperated variable string.
-        new_list = old_list + ' '  + item_to_add
+        new_list = old_list + ' ' + item_to_add
 
         #Add new node to list and put in correct dictionary form
         dict_to_add_to['properties'][field_name] = new_list
@@ -156,8 +158,8 @@ class StingrayDriver(BaseDriver):
                      vip, ssl_proxy)
 
     def remove_ssl_proxy_from_virtual_ip(self, vip, ssl_proxy):
-        logger.debug("Called DummyStingrayDriver.removeSSLProxyFromVIP(%r, %r).",
-                     vip, ssl_proxy)
+        logger.debug("Called DummyStingrayDriver"
+                        ".removeSSLProxyFromVIP(%r, %r).", vip, ssl_proxy)
 
     def create_real_server(self, rserver):
         #Create node in our terminology
@@ -198,7 +200,7 @@ class StingrayDriver(BaseDriver):
         probe_type = probe['type'].lower()
 
         #Check that ping type is valid
-        # supported_protocols = 
+        # supported_protocols =
         # if probe_type not in supported_protocols
 
         #Could cause bug with ping here
@@ -214,10 +216,10 @@ class StingrayDriver(BaseDriver):
         if 'timeout' in probe:
             monitor_new['properties']['timeout'] = probe['timeout']
         if 'max_reponse_len' in probe:
-            monitor_new['properties']['max_reponse_len'] = probe['max_reponse_len']
+            monitor_new['properties']['max_reponse_len'] = \
+                                            probe['max_reponse_len']
         if 'can_use_ssl' in probe:
             monitor_new['properties']['can_use_ssl'] = probe['can_use_ssl']
-
 
         #Create new probe
         self.send_request(target, 'PUT', monitor_new)
@@ -228,7 +230,8 @@ class StingrayDriver(BaseDriver):
         response = json.loads(response_json)
         try:
             #Defaultly returns a whitespace seperated string, turn into a list
-            allowed_config_options_string = response['properties']['editable_keys']
+            allowed_config_options_string = \
+                        response['properties']['editable_keys']
             allowed_config_options = allowed_config_options_string.split()
 
             try:
@@ -236,18 +239,17 @@ class StingrayDriver(BaseDriver):
             except KeyError:
                 options = {}
 
-            monitor_mod = {'properties': {} }
+            monitor_mod = {'properties': {}}
 
             #Copy all appropriate keys from the probe object to the Stingray
             for key in options:
                 if key in allowed_config_options:
                     monitor_mod['properties'][key] = options[key]
 
-            self.send_request(target,'PUT', monitor_mod)
+            self.send_request(target, 'PUT', monitor_mod)
         except KeyError:
             #editable_keys wasn't set in the response, there are no such keys
             pass
-
 
     def delete_probe(self, probe):
         '''Remove probe
@@ -256,14 +258,14 @@ class StingrayDriver(BaseDriver):
         target = 'monitors/' + probe['name'] + '/'
         self.send_request(target, 'DELETE')
 
-
     def create_server_farm(self, serverfarm, predictor):
-        ''' Sets up virtual server and pool and connects the two. Virtual server
-        defaultly listens on all addresses, changed to traffic IP group later on.
-        Stingray defaultly throws an error if pool has no nodes, but this dissapears
-        once a node is added.
+        ''' Sets up virtual server and pool and connects the two. Virtual
+        server defaultly listens on all addresses, changed to traffic IP
+        group later on. Stingray defaultly throws an error if pool has no
+        nodes, but this dissapears once a node is added.
 
-        ID of serverfarm is used to name node, pool and traffic IP group on stingray.
+        ID of serverfarm is used to name node, pool and traffic IP group on
+        stingray.
         '''
         #??Logical naming??
         #Create pool with no attached nodes
@@ -310,7 +312,6 @@ class StingrayDriver(BaseDriver):
                 pass
             else:
                 raise
-
 
     def add_real_server_to_server_farm(self, serverfarm, rserver):
         ''' Adds a new node to the nodelist for pool associated with
