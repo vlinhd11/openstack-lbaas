@@ -17,6 +17,9 @@ class StingrayDriver(BaseDriver):
     a class which implements the functions allowing for dictionary notation.
     Using this notation allows for easy unit testing.
     '''
+
+    supported_probes = ()
+
     def __init__(self,  conf,  device_ref):
         super(StingrayDriver, self).__init__(conf, device_ref)
         #Store id and name for later functions
@@ -123,16 +126,21 @@ class StingrayDriver(BaseDriver):
             old_list = current['properties'][field_name]
         except KeyError:
             #Raise no item found exception?
+            #404 even?
             old_list = ''
 
         #remove item and replace list in dictionary
-        new_list = old_list.replace(item_to_remove, '')
+        #leading whitespace means deletions eventually leave empty string
+        new_list = old_list.replace(' ' + item_to_remove, '')
         dict_to_remove_from['properties'][field_name] = new_list
 
         return dict_to_remove_from
 
     def import_certificate_or_key(self):
+        #Generic FLA licence?! Does nto seem to fit in very well with a
+        #commercial system custom keys
         #SSL certificates/Licence keys?
+        #No arguments to function?!?!
         logger.debug("Called DummyStingrayDriver.importCertificatesAndKeys().")
 
     def create_ssl_proxy(self, ssl_proxy):
@@ -180,10 +188,74 @@ class StingrayDriver(BaseDriver):
                      rserver)
 
     def create_probe(self, probe):
-        logger.debug("Called DummyStingrayDriver.createProbe(%r).", probe)
+        '''Creates a probe in two stages. Firstly creates a named probe with
+        options valid for all probes. Then edits this probe with protocol
+        specific options. Will ignore any other parameters.
+        '''
+        target = 'monitors/' + probe['name'] + '/'
+
+        #Configure options standard across all nodes
+        probe_type = probe['type'].lower()
+
+        #Check that ping type is valid
+        # supported_protocols = 
+        # if probe_type not in supported_protocols
+
+        #Could cause bug with ping here
+        monitor_new = {'properties': {
+                'type': probe_type
+            }
+        }
+
+        if 'delay' in probe:
+            monitor_new['properties']['delay'] = probe['delay']
+        if 'failures' in probe:
+            monitor_new['properties']['failures'] = probe['failures']
+        if 'timeout' in probe:
+            monitor_new['properties']['timeout'] = probe['timeout']
+        if 'max_reponse_len' in probe:
+            monitor_new['properties']['max_reponse_len'] = probe['max_reponse_len']
+        if 'can_use_ssl' in probe:
+            monitor_new['properties']['can_use_ssl'] = probe['can_use_ssl']
+
+
+        #Create new probe
+        self.send_request(target, 'PUT', monitor_new)
+
+        #Configure options specific to this node type
+        #Get possible config options from Stingray
+        response_json = self.send_request(target, 'GET').text
+        response = json.loads(response_json)
+        try:
+            #Defaultly returns a whitespace seperated string, turn into a list
+            allowed_config_options_string = response['properties']['editable_keys']
+            allowed_config_options = allowed_config_options_string.split()
+
+            try:
+                options = json.loads(probe['extras'])
+            except KeyError:
+                options = {}
+
+            monitor_mod = {'properties': {} }
+
+            #Copy all appropriate keys from the probe object to the Stingray
+            for key in options:
+                if key in allowed_config_options:
+                    monitor_mod['properties'][key] = options[key]
+
+            self.send_request(target,'PUT', monitor_mod)
+        except KeyError:
+            #editable_keys wasn't set in the response, there are no such keys
+            pass
+
 
     def delete_probe(self, probe):
-        logger.debug("Called DummyStingrayDriver.deleteProbe(%r).", probe)
+        '''Remove probe
+        '''
+
+        target = 'monitors/' + probe['name'] + '/'
+        self.send_request(target, 'DELETE')
+
 
     def create_server_farm(self, serverfarm, predictor):
         ''' Sets up virtual server and pool and connects the two. Virtual server
@@ -231,11 +303,10 @@ class StingrayDriver(BaseDriver):
         #DELETE request to traffic IP group
         try:
             target = 'flipper/' + serverfarm['id'] + '/'
-            response = self.send_request(target, 'DELETE')
-        except HTTPError:
+            self.send_request(target, 'DELETE')
+        except HTTPError as e:
             #Traffic IP group may not exist, if so just continue
-            #FIXME: This cannot work this way under current version of requests
-            if response.status_code == '404':
+            if e.response.status_code == 404:
                 pass
             else:
                 raise
@@ -263,8 +334,8 @@ class StingrayDriver(BaseDriver):
         #Set up variables for request
         target = 'pools/' + serverfarm['id'] + '/'
         node = rserver['address'] + ':' + rserver['port'] + ' '
-        pool_mod = {"properties": {
-             "nodes": ''
+        pool_mod = {'properties': {
+             'nodes': ''
             }
         }
 
@@ -273,12 +344,27 @@ class StingrayDriver(BaseDriver):
         self.send_request(target, 'PUT', pool_mod)
 
     def add_probe_to_server_farm(self, serverfarm, probe):
-        logger.debug("Called DummyStingrayDriver.addProbeToSF(%r, %r).",
-                     serverfarm, probe)
+        #TODO:
+        target = 'pools/' + serverfarm['id'] + '/'
+
+        node_mod = {
+            'properties': {}
+        }
+
+        self.rest_add_to_list(target, 'monitors', probe['name'], node_mod)
+
+        self.send_request(target, 'PUT', node_mod)
 
     def delete_probe_from_server_farm(self, serverfarm, probe):
-        logger.debug("Called DummyStingrayDriver.deleteProbeFromSF(%r, %r).",
-                     serverfarm, probe)
+        '''
+        '''
+        target = 'pools/' + serverfarm['id'] + '/'
+
+        node_mod = {
+            'properties': {}
+        }
+
+        self.rest_delete_from_list(target, 'monitors', probe['name'], node_mod)
 
     def create_stickiness(self, sticky):
         logger.debug("Called DummyStingrayDriver.createStickiness(%r).",
@@ -298,16 +384,16 @@ class StingrayDriver(BaseDriver):
 
         try:
             #Add IP to existing traffic Ip group
-            traffic_ip_mod = {'properties' : {
+            traffic_ip_mod = {'properties': {
                 'ipaddresses': '',
                 }
             }
-            traffic_ip_mod = self.rest_delete_from_list(target, 'ipaddresses',
+            traffic_ip_mod = self.rest_add_to_list(target, 'ipaddresses',
                                             vip['address'], traffic_ip_mod)
 
         except HTTPError:
             #No traffic IP group exists, create one
-            traffic_ip_new = {'properties' : {
+            traffic_ip_new = {'properties': {
                 'ipaddresses': vip['address'],
                 'machines': self.device_name
                 }
@@ -317,16 +403,33 @@ class StingrayDriver(BaseDriver):
             #hook it up to the virtual server
             vserver_target = 'vservers/' + serverfarm['id'] + '/'
             vserver_mod = {'properties': {
-                        'address':('!' + serverfarm['id']),
+                        'address': ('!' + serverfarm['id']),
                 }
             }
             self.send_request(vserver_target, 'PUT', vserver_mod)
 
-
     def delete_virtual_ip(self, vip):
-        #Traffic IP in our terminology
-        #TODO:
-        logger.debug("Called DummyStingrayDriver.deleteVIP(%r).", vip)
+        '''Remove the virtual Ip from the traffic IP group associated with
+        this serverfarm. If it is the last such virtual IP, remove the
+        traffic IP group entirely (ensures that the traffic manager will
+        go back to listening on all interfaces).
+        '''
+
+        target = 'flipper/' + serverfarm['id'] + '/'
+
+        traffic_ip_mod = {'porperties': {
+            'ipaddresses': '',
+            }
+        }
+        traffic_ip_mod = self.rest_delete_from_list(target,
+                    'ipaddresses', vip['address'], traffic_ip_mod)
+
+        if traffic_ip_mod['properties']['ipaddresses'] == '':
+            #No more VIPs left in the traffic IP group, delete the group
+            self.send_request(target, 'DELETE')
+        else:
+            #Send request to remove VIP from traffic IP group
+            self.send_request(target, 'PUT', traffic_ip_mod)
 
     def get_statistics(self, serverfarm, rserver):
         logger.debug("Called DummyStingrayDriver.getStatistics(%r, %r).",

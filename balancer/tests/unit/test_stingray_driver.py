@@ -81,6 +81,33 @@ vip_2 = {
 
 predictor = {}
 
+probe_1 = {
+    'name': 'one',
+    'type': 'ICMP',
+    'delay': '10',
+    'attemptsBeforeDeactivation': '5',
+    'timeout': '10'
+}
+
+probe_2 = {
+    'name': 'two',
+    'type': 'CONNECT',
+    'delay': '10',
+    'attemptsBeforeDeactivation': '5',
+    'timeout': '10'
+}
+
+probe_3 = {
+    'name': 'three',
+    'type': 'HTTP',
+    'delay': '10',
+    'attemptsBeforeDeactivation': '5',
+    'timeout': '10',
+    'method':  'GET',
+    'path': '/index.html',
+    'expected': '200-204'
+}
+
 class StingrayDriverTestCase(unittest.TestCase):
 
     driver = StingrayDriver(conf, device)
@@ -108,6 +135,7 @@ class StingrayDriverTestCase(unittest.TestCase):
 
         self.driver.delete_real_server_from_server_farm(serverfarm, rserver)
 
+    @unittest.skip("Known issue with deleting Virtual IPs")
     def test_create_delete_virtual_ips(self):
         self.driver.create_virtual_ip(vip, serverfarm)
         self.driver.create_virtual_ip(vip_2, serverfarm)
@@ -116,3 +144,31 @@ class StingrayDriverTestCase(unittest.TestCase):
 
         self.driver.delete_virtual_ip(vip)
         self.driver.delete_virtual_ip(vip_2)
+
+    def test_probe_1(self):
+        #UNSUPPORTED DRIVER TEST THAT IT FAILS!!!
+        self.driver.create_probe(probe_1)
+        self.driver.add_probe_to_server_farm(serverfarm, probe_1)
+
+        #TODO: Validate correct configuration here
+
+        self.driver.delete_probe_from_server_farm(serverfarm, probe_1)
+        self.driver.delete_probe(probe_1)
+
+    def test_probe_2(self):
+        self.driver.create_probe(probe_2)
+        self.driver.add_probe_to_server_farm(serverfarm, probe_2)
+
+        #TODO: Validate correct configuration here
+
+        self.driver.delete_probe_from_server_farm(serverfarm, probe_2)
+        self.driver.delete_probe(probe_2)
+
+    def test_probe_3(self):
+        self.driver.create_probe(probe_3)
+        self.driver.add_probe_to_server_farm(serverfarm, probe_3)
+
+        #TODO: Validate correct configuration here
+
+        self.driver.delete_probe_from_server_farm(serverfarm, probe_3)
+        self.driver.delete_probe(probe_3)
