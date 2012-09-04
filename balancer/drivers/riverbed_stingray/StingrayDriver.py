@@ -5,9 +5,9 @@ import base64
 import urlparse
 import json
 import requests
+
 from requests.auth import HTTPBasicAuth
 from requests.exceptions import HTTPError
-
 from balancer.drivers.base_driver import BaseDriver
 
 logger = logging.getLogger(__name__)
@@ -18,7 +18,7 @@ class StingrayDriver(BaseDriver):
     from a class which implements the functions allowing for dictionary
     notation. Using this notation allows for easy unit testing.
     '''
-
+    #TODO: Fill with all possible stingray probe types
     supported_probes = ()
 
     def __init__(self,  conf,  device_ref):
@@ -138,56 +138,21 @@ class StingrayDriver(BaseDriver):
 
         return dict_to_remove_from
 
-    def import_certificate_or_key(self):
-        #Generic FLA licence?! Does nto seem to fit in very well with a
-        #commercial system custom keys
-        #SSL certificates/Licence keys?
-        #No arguments to function?!?!
-        logger.debug("Called DummyStingrayDriver.importCertificatesAndKeys().")
+    def translate_probe_type(probe_type)
+        ''' Translate the probe types exposed through the client API to those
+        used in the Stingray REST API and config files.
+        '''
+        translation_table = {
+            'test': 'stingray_test',
+        }
 
-    def create_ssl_proxy(self, ssl_proxy):
-        logger.debug("Called DummyStingrayDriver.createSSLProxy(%r).",
-                     ssl_proxy)
+        try:
+            stingray_probe_type = translation_table[probe_type]
+        except KeyError:
+            #No translation found in dictionary
+            stingray_probe_type = probe_type
 
-    def delete_ssl_proxy(self, ssl_proxy):
-        logger.debug("Called DummyStingrayDriver.deleteSSLProxy(%r).",
-                     ssl_proxy)
-
-    def add_ssl_proxy_to_virtual_ip(self, vip, ssl_proxy):
-        logger.debug("Called DummyStingrayDriver.deleteSSLProxy(%r, %r).",
-                     vip, ssl_proxy)
-
-    def remove_ssl_proxy_from_virtual_ip(self, vip, ssl_proxy):
-        logger.debug("Called DummyStingrayDriver"
-                        ".removeSSLProxyFromVIP(%r, %r).", vip, ssl_proxy)
-
-    def create_real_server(self, rserver):
-        #Create node in our terminology
-        #Do we need to do anythign here?
-
-        logger.debug("Called DummyStingrayDriver.createRServer(%r).", rserver)
-
-    def delete_real_server(self, rserver):
-        #Delete node in our terminology
-        #Do we need to do anything here?
-
-        logger.debug("Called DummyStingrayDriver.deleteRServer(%r).", rserver)
-
-    def activate_real_server(self, serverfarm, rserver):
-        logger.debug("Called DummyStingrayDriver.activateRServer(%r, %r).",
-                     serverfarm, rserver)
-
-    def activate_real_server_global(self, rserver):
-        logger.debug("Called DummyStingrayDriver.activateRServerGlobal(%r).",
-                     rserver)
-
-    def suspend_real_server(self, serverfarm, rserver):
-        logger.debug("Called DummyStingrayDriver.suspendRServer(%r, %r).",
-                     serverfarm, rserver)
-
-    def suspend_real_server_global(self, rserver):
-        logger.debug("Called DummyStingrayDriver.suspendRServerGlobal(%r).",
-                     rserver)
+        return stingray_probe_type
 
     def create_probe(self, probe):
         '''Creates a probe in two stages. Firstly creates a named probe with
@@ -199,7 +164,7 @@ class StingrayDriver(BaseDriver):
         #Configure options standard across all nodes
         probe_type = probe['type'].lower()
 
-        #Check that ping type is valid
+        #TODO: Check that ping type is valid
         # supported_protocols =
         # if probe_type not in supported_protocols
 
@@ -367,14 +332,6 @@ class StingrayDriver(BaseDriver):
 
         self.rest_delete_from_list(target, 'monitors', probe['name'], node_mod)
 
-    def create_stickiness(self, sticky):
-        logger.debug("Called DummyStingrayDriver.createStickiness(%r).",
-                     sticky)
-
-    def delete_stickiness(self, sticky):
-        logger.debug("Called DummyStingrayDriver.deleteStickiness(%r).",
-                     sticky)
-
     def create_virtual_ip(self, vip, serverfarm):
         ''' Add the virtual IP to the traffic IP group associated with this
         serverfarm. If no traffic IP exists yet then create it with this IP.
@@ -432,6 +389,70 @@ class StingrayDriver(BaseDriver):
             #Send request to remove VIP from traffic IP group
             self.send_request(target, 'PUT', traffic_ip_mod)
 
+    ''' Not implemented yet
+    '''
+
     def get_statistics(self, serverfarm, rserver):
         logger.debug("Called DummyStingrayDriver.getStatistics(%r, %r).",
                      serverfarm, rserver)
+
+    def create_stickiness(self, sticky):
+        logger.debug("Called DummyStingrayDriver.createStickiness(%r).",
+                     sticky)
+
+    def delete_stickiness(self, sticky):
+        logger.debug("Called DummyStingrayDriver.deleteStickiness(%r).",
+                     sticky)
+
+    def import_certificate_or_key(self):
+        #Generic FLA licence?! Does nto seem to fit in very well with a
+        #commercial system custom keys
+        #SSL certificates/Licence keys?
+        #No arguments to function?!?!
+        logger.debug("Called DummyStingrayDriver.importCertificatesAndKeys().")
+
+    def create_ssl_proxy(self, ssl_proxy):
+        logger.debug("Called DummyStingrayDriver.createSSLProxy(%r).",
+                     ssl_proxy)
+
+    def delete_ssl_proxy(self, ssl_proxy):
+        logger.debug("Called DummyStingrayDriver.deleteSSLProxy(%r).",
+                     ssl_proxy)
+
+    def add_ssl_proxy_to_virtual_ip(self, vip, ssl_proxy):
+        logger.debug("Called DummyStingrayDriver.deleteSSLProxy(%r, %r).",
+                     vip, ssl_proxy)
+
+    def remove_ssl_proxy_from_virtual_ip(self, vip, ssl_proxy):
+        logger.debug("Called DummyStingrayDriver"
+                        ".removeSSLProxyFromVIP(%r, %r).", vip, ssl_proxy)
+
+    def activate_real_server(self, serverfarm, rserver):
+        logger.debug("Called DummyStingrayDriver.activateRServer(%r, %r).",
+                     serverfarm, rserver)
+
+    def activate_real_server_global(self, rserver):
+        logger.debug("Called DummyStingrayDriver.activateRServerGlobal(%r).",
+                     rserver)
+
+    def suspend_real_server(self, serverfarm, rserver):
+        logger.debug("Called DummyStingrayDriver.suspendRServer(%r, %r).",
+                     serverfarm, rserver)
+
+    def suspend_real_server_global(self, rserver):
+        logger.debug("Called DummyStingrayDriver.suspendRServerGlobal(%r).",
+                     rserver)
+
+    '''Included for compatibility with other drivers.
+    '''
+    def create_real_server(self, rserver):
+        #Create node in our terminology
+        #Do we need to do anythign here?
+
+        logger.debug("Called DummyStingrayDriver.createRServer(%r).", rserver)
+
+    def delete_real_server(self, rserver):
+        #Delete node in our terminology
+        #Do we need to do anything here?
+
+        logger.debug("Called DummyStingrayDriver.deleteRServer(%r).", rserver)
