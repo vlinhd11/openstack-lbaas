@@ -2,8 +2,10 @@
 
 import unittest
 import requests
+import logging
 
 from balancer.drivers.riverbed_stingray.StingrayDriver import StingrayDriver
+from requests.exceptions import HTTPError
 
 ''' Missing fields in test values may be due to lack of implmementation
 as opposed to lack of desired use.
@@ -81,7 +83,8 @@ vip_2 = {
 
 predictor = {}
 
-probe_1 = {
+probe_incompatible = {
+    'id': 'incompatible_id',
     'name': 'one',
     'type': 'ICMP',
     'delay': '10',
@@ -89,7 +92,8 @@ probe_1 = {
     'timeout': '10'
 }
 
-probe_2 = {
+probe_connect = {
+    'id': 'connect_id',
     'name': 'two',
     'type': 'CONNECT',
     'delay': '10',
@@ -97,7 +101,8 @@ probe_2 = {
     'timeout': '10'
 }
 
-probe_3 = {
+probe_http = {
+    'id': 'http_id',
     'name': 'three',
     'type': 'HTTP',
     'delay': '10',
@@ -107,6 +112,20 @@ probe_3 = {
     'path': '/index.html',
     'expected': '200-204'
 }
+
+probe_https = {
+    'id': 'https_id',
+    'name': 'four',
+    'type': 'HTTPS',
+    'delay': '10',
+    'attemptsBeforeDeactivation': '5',
+    'timeout': '10',
+    'method':  'GET',
+    'path': '/index.html',
+    'expected': '200-204'
+}
+
+logger = logging.getLogger(__name__)
 
 
 class StingrayDriverTestCase(unittest.TestCase):
@@ -129,47 +148,76 @@ class StingrayDriverTestCase(unittest.TestCase):
         ported_driver = StingrayDriver(conf, device_with_port)
         response = ported_driver.send_request('', 'GET')
 
-    def test_add_real_server(self):
+    def test_real_server_add_remove(self):
         self.driver.add_real_server_to_server_farm(serverfarm, rserver)
 
-        #TODO:Validate correct configuration here
+        target = 'pools/' + serverfarm['id'] + '/'
+        response = self.driver.send_request(target, 'GET')
+        response_dict = self.driver.response_to_dict(response)
 
+        node = rserver['address'] + ':' + rserver['port']
+        logger.debug(node)
+
+        if node in response_dict['properties']['nodes']:
+            successful = True
+        else:
+            successful = False
+
+        self.assertTrue(successful)
         self.driver.delete_real_server_from_server_farm(serverfarm, rserver)
+
+    @unittest.skip("Feature not implemented")
+    def test_real_server_weights(self):
+        pass
 
     @unittest.skip("Known issue with deleting Virtual IPs")
     def test_create_delete_virtual_ips(self):
         self.driver.create_virtual_ip(vip, serverfarm)
         self.driver.create_virtual_ip(vip_2, serverfarm)
 
-        #TODO:Validate correct configuration here
+        #TODO: Validation in progress
+        target = 'flipper/' + serverfarm['id'] + '/'
+        response = self.driver.send_request(target, 'GET')
+        response_dict = self.driver.response_to_dict(response)
 
         self.driver.delete_virtual_ip(vip)
         self.driver.delete_virtual_ip(vip_2)
 
-    def test_probe_1(self):
-        #UNSUPPORTED DRIVER TEST THAT IT FAILS!!!
-        self.driver.create_probe(probe_1)
-        self.driver.add_probe_to_server_farm(serverfarm, probe_1)
+    def test_probe_incompatible(self):
+        #Test request for unknown probe type ends in failure
+        failed_properly = False
+
+        try:
+            self.driver.create_probe(probe_incompatible)
+        except HTTPError as e:
+            if e.response.status_code == 400:
+                failed_properly = True
+
+        self.assertTrue(failed_properly)
+
+    def test_probe_connect(self):
+        self.driver.create_probe(probe_connect)
+        self.driver.add_probe_to_server_farm(serverfarm, probe_connect)
 
         #TODO: Validate correct configuration here
 
-        self.driver.delete_probe_from_server_farm(serverfarm, probe_1)
-        self.driver.delete_probe(probe_1)
+        self.driver.delete_probe_from_server_farm(serverfarm, probe_connect)
+        self.driver.delete_probe(probe_connect)
 
-    def test_probe_2(self):
-        self.driver.create_probe(probe_2)
-        self.driver.add_probe_to_server_farm(serverfarm, probe_2)
-
-        #TODO: Validate correct configuration here
-
-        self.driver.delete_probe_from_server_farm(serverfarm, probe_2)
-        self.driver.delete_probe(probe_2)
-
-    def test_probe_3(self):
-        self.driver.create_probe(probe_3)
-        self.driver.add_probe_to_server_farm(serverfarm, probe_3)
+    def test_probe_http(self):
+        self.driver.create_probe(probe_http)
+        self.driver.add_probe_to_server_farm(serverfarm, probe_http)
 
         #TODO: Validate correct configuration here
 
-        self.driver.delete_probe_from_server_farm(serverfarm, probe_3)
-        self.driver.delete_probe(probe_3)
+        self.driver.delete_probe_from_server_farm(serverfarm, probe_http)
+        self.driver.delete_probe(probe_http)
+
+    def test_probe_https(self):
+        self.driver.create_probe(probe_https)
+        self.driver.add_probe_to_server_farm(serverfarm, probe_https)
+
+        #TODO: Validate correct configuration here
+
+        self.driver.delete_probe_from_server_farm(serverfarm, probe_https)
+        self.driver.delete_probe(probe_https)

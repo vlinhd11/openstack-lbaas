@@ -18,8 +18,6 @@ class StingrayDriver(BaseDriver):
     from a class which implements the functions allowing for dictionary
     notation. Using this notation allows for easy unit testing.
     '''
-    #TODO: Fill with all possible stingray probe types
-    supported_probes = ()
 
     def __init__(self,  conf,  device_ref):
         super(StingrayDriver, self).__init__(conf, device_ref)
@@ -96,8 +94,8 @@ class StingrayDriver(BaseDriver):
         '''
         #TODO: Get new version of REST so list syntax used
         #Requests data from Stingray and extract current list
-        current_json = self.send_request(target, 'GET').text
-        current = json.loads(current_json)
+        current_json = self.send_request(target, 'GET')
+        current = self.response_to_dict(current_json)
 
         try:
             old_list = current['properties'][field_name]
@@ -121,8 +119,8 @@ class StingrayDriver(BaseDriver):
         '''
         #??change to throw item not found exception??
         #TODO: Get new version of REST so list syntax used.
-        current_json = self.send_request(target, 'GET').text
-        current = json.loads(current_json)
+        current_json = self.send_request(target, 'GET')
+        current = self.response_to_dict(current_json)
 
         try:
             old_list = current['properties'][field_name]
@@ -132,18 +130,25 @@ class StingrayDriver(BaseDriver):
             old_list = ''
 
         #remove item and replace list in dictionary
-        #leading whitespace means deletions eventually leave empty string
-        new_list = old_list.replace(' ' + item_to_remove, '')
+        #stripping whitespace means deletions eventually leave empty string
+        new_list = old_list.replace(' ' + item_to_remove, '').strip()
         dict_to_remove_from['properties'][field_name] = new_list
 
         return dict_to_remove_from
 
-    def translate_probe_type(probe_type)
+    def translate_probe_type(self, probe_type):
         ''' Translate the probe types exposed through the client API to those
         used in the Stingray REST API and config files.
         '''
+        probe_type = probe_type.lower()
+
+        #All the types of probe that are supported by Stingray
+        supported_probe_types = ('tcp_transaction', 'sip', 'http', 'ping',
+                                            'rtsp', 'program', 'connect')
+
         translation_table = {
-            'test': 'stingray_test',
+            #must add use_ssl option
+            'https': 'http',
         }
 
         try:
@@ -152,47 +157,68 @@ class StingrayDriver(BaseDriver):
             #No translation found in dictionary
             stingray_probe_type = probe_type
 
-        return stingray_probe_type
+        if stingray_probe_type in supported_probe_types:
+            return stingray_probe_type
+        else:
+            #Raise exception here?
+            logger.debug("Stingray: Probe type not found (%s)",
+                            stingray_probe_type)
+
+    def response_to_dict(self, response):
+        '''Returns a dictionary of the contents of a response objects body
+        '''
+        json_string = response.text
+
+        return json.loads(json_string)
 
     def create_probe(self, probe):
         '''Creates a probe in two stages. Firstly creates a named probe with
         options valid for all probes. Then edits this probe with protocol
         specific options. Will ignore any other parameters.
         '''
-        target = 'monitors/' + probe['name'] + '/'
+        target = 'monitors/' + probe['id'] + '/'
 
         #Configure options standard across all nodes
-        probe_type = probe['type'].lower()
+        probe_type = self.translate_probe_type(probe['type'])
 
-        #TODO: Check that ping type is valid
-        # supported_protocols =
-        # if probe_type not in supported_protocols
-
-        #Could cause bug with ping here
+        '''Iterate through keys fields, building request for new monitor from
+        appropriate fields
+        '''
         monitor_new = {'properties': {
                 'type': probe_type
             }
         }
 
-        if 'delay' in probe:
-            monitor_new['properties']['delay'] = probe['delay']
-        if 'failures' in probe:
-            monitor_new['properties']['failures'] = probe['failures']
-        if 'timeout' in probe:
-            monitor_new['properties']['timeout'] = probe['timeout']
-        if 'max_reponse_len' in probe:
-            monitor_new['properties']['max_reponse_len'] = \
-                                            probe['max_reponse_len']
-        if 'can_use_ssl' in probe:
-            monitor_new['properties']['can_use_ssl'] = probe['can_use_ssl']
+        stingray_default_options = ('delay', 'failures', 'timeout',
+                                    'max_response_len', 'scope',
+                                    'can_use_ssl', 'use_ssl')
+
+        #Method implemented by host_method field in Stingray?
+        option_translate_dict = {
+            'probeInterval': 'delay',
+            'attemptsBeforeDeactivation': 'failures',
+            'failDetect': 'failures',
+            'passDetectInterval': 'timeout',
+        }
+
+        for key in probe:
+            if key in stingray_default_options:
+                monitor_new['properties'][key] = probe[key]
+            elif key in option_translate_dict:
+                new_key = option_translate_dict[key]
+                monitor_new['properties'][new_key] = probe[key]
+
+        #Hack to solve https problem
+        if probe['type'].lower() == 'https':
+            monitor_new['properties']['use_ssl'] = 'Yes'
 
         #Create new probe
         self.send_request(target, 'PUT', monitor_new)
 
         #Configure options specific to this node type
         #Get possible config options from Stingray
-        response_json = self.send_request(target, 'GET').text
-        response = json.loads(response_json)
+        response_json = self.send_request(target, 'GET')
+        response = self.response_to_dict(response_json)
         try:
             #Defaultly returns a whitespace seperated string, turn into a list
             allowed_config_options_string = \
@@ -220,7 +246,7 @@ class StingrayDriver(BaseDriver):
         '''Remove probe
         '''
 
-        target = 'monitors/' + probe['name'] + '/'
+        target = 'monitors/' + probe['id'] + '/'
         self.send_request(target, 'DELETE')
 
     def create_server_farm(self, serverfarm, predictor):
@@ -236,7 +262,7 @@ class StingrayDriver(BaseDriver):
         #Create pool with no attached nodes
         target = 'pools/' + serverfarm['id'] + '/'
         pool_new = {"properties": {
-            "monitors": "ping"
+            "monitors": "Ping"
             }
         }
 
@@ -317,7 +343,7 @@ class StingrayDriver(BaseDriver):
             'properties': {}
         }
 
-        self.rest_add_to_list(target, 'monitors', probe['name'], node_mod)
+        self.rest_add_to_list(target, 'monitors', probe['id'], node_mod)
 
         self.send_request(target, 'PUT', node_mod)
 
@@ -330,7 +356,7 @@ class StingrayDriver(BaseDriver):
             'properties': {}
         }
 
-        self.rest_delete_from_list(target, 'monitors', probe['name'], node_mod)
+        self.rest_delete_from_list(target, 'monitors', probe['id'], node_mod)
 
     def create_virtual_ip(self, vip, serverfarm):
         ''' Add the virtual IP to the traffic IP group associated with this
