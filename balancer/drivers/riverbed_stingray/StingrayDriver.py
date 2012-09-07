@@ -10,6 +10,8 @@ from requests.auth import HTTPBasicAuth
 from requests.exceptions import HTTPError
 from balancer.drivers.base_driver import BaseDriver
 
+from pprint import pprint
+
 logger = logging.getLogger(__name__)
 
 
@@ -149,6 +151,7 @@ class StingrayDriver(BaseDriver):
         '''
         #FIXME: Type error with real data, possibly extra being a
         #JSONBlob (models.py)
+        pprint(vars(probe))
         target = 'monitors/' + probe['id'] + '/'
         monitor_new = {'properties': {}}
         probe_type = probe['type'].lower()
@@ -172,7 +175,7 @@ class StingrayDriver(BaseDriver):
 
         #Load all options out of extras field
         try:
-            given_options = json.loads(probe['extra'])
+            given_options = probe['extra']
         except KeyError:
             given_options = {}
 
@@ -180,7 +183,7 @@ class StingrayDriver(BaseDriver):
         Stingray default options: delay, failures, timeout,
         max_response_len, scope, can_use_ssl, use_ssl.
         '''
-
+        #FIXME: Translatiosn throwing exceptions
         #Perform translation of terms -- meanings must exactly correlate!
         opt_translation_dict = {
             'probeInterval': 'delay',
@@ -189,18 +192,25 @@ class StingrayDriver(BaseDriver):
             'passDetectInterval': 'timeout',
         }
 
+        #Perform copy of given_options, translating where necessary
+        given_options_copy = {}
+
         for opt in given_options:
             if opt in opt_translation_dict:
                 new_key = opt_translation_dict[opt]
-                given_options[new_key] = given_options[opt]
+                given_options_copy[new_key] = given_options[opt]
+            else:
+                given_options_copy[opt] = given_options[opt]
+        print(given_options_copy)
+        print(opt_translation_dict)
 
         #Include options in request
         monitor_new['properties']['delay'] = (
-                                    given_options.get('delay', '10'))
+                                    given_options_copy.get('delay', '10'))
         monitor_new['properties']['failures'] = (
-                                    given_options.get('failures', '3'))
+                                    given_options_copy.get('failures', '3'))
         monitor_new['properties']['timeout'] = (
-                                    given_options.get('timeout', '10'))
+                                    given_options_copy.get('timeout', '10'))
         #Create new probe
         self.send_request(target, 'PUT', monitor_new)
 
@@ -315,8 +325,6 @@ class StingrayDriver(BaseDriver):
             }
         }
 
-        #TODO: Limiting connections per node possible for stingray?
-
         #Modify dictionary and send PUT request with that dictionary
         pool_mod = self.rest_add_to_list(target, 'nodes', new_node, pool_mod)
         pool_mod = self.rest_add_to_list(target, 'priority!values',
@@ -365,7 +373,9 @@ class StingrayDriver(BaseDriver):
             'properties': {}
         }
 
-        self.rest_delete_from_list(target, 'monitors', probe['id'], node_mod)
+        node_mod = self.rest_delete_from_list(target, 'monitors', probe['id'],
+                                                                        node_mod)
+        self.send_request(target, 'PUT', node_mod)
 
     def create_virtual_ip(self, vip, serverfarm):
         ''' Add the virtual IP to the traffic IP group associated with this
@@ -405,9 +415,9 @@ class StingrayDriver(BaseDriver):
         traffic IP group entirely (ensures that the traffic manager will
         go back to listening on all interfaces).
         '''
-        target = 'flipper/' + serverfarm['id'] + '/'
+        target = 'flipper/' + vip['sf_id'] + '/'
 
-        traffic_ip_mod = {'porperties': {
+        traffic_ip_mod = {'properties': {
             'ipaddresses': '',
             }
         }
@@ -419,7 +429,7 @@ class StingrayDriver(BaseDriver):
             self.send_request(target, 'DELETE')
 
             #Remove group from vserver
-            vserver_target = 'vservers/' + serverfarm['id'] + '/'
+            vserver_target = 'vservers/' + vip['sf_id'] + '/'
             vserver_mod = {'properties': {
                         'address': ''
                 }
@@ -454,19 +464,68 @@ class StingrayDriver(BaseDriver):
         self.rest_delete_from_list(target, 'disabled', probe['id'], node_mod)
         self.send_request(target, 'PUT', node_mod)
 
+    def create_stickiness(self, sticky):
+        ''' Firstyle create a session persistence class and then associate
+        that class with the pool.
+        '''
+        pprint (vars(sticky))
+        #Create session persistence class
+        pers_target = 'persistence/' + sticky['id'] + '/'
+
+        pers_mod = {'properties': {}}
+
+        #translate_type
+        sticky_type = sticky['extra']['persistenceType'].lower()
+
+        if sticky_type == 'http_cookie':
+            pers_mod['properties']['type'] = 'sardine'
+        elif sticky_type == 'ip':
+            pers_mod['properties']['type'] = 'ip'
+        elif sticky_type == 'http_header':
+            logger.debug("Stingray does not support session persistence type "
+                         "(%s)", extra['persistenceType'])
+            return
+
+        print(pers_target)
+        pprint(pers_mod)
+
+        self.send_request(pers_target, 'PUT', pers_mod)
+
+        #Attach new class to node
+        pool_target = 'pools/' + sticky['sf_id'] + '/'
+
+        pool_mod = {'properties': {
+                'persistence': sticky['id']
+            }
+        }
+
+        self.send_request(pool_target, 'PUT', pool_mod)
+
+    def delete_stickiness(self, sticky):
+        '''Checks if the persistence class is currently connected to the node,
+        and removes it if so. Then deletes the session persistence class from
+        the device.
+        '''
+        #Check if class is currently 
+        pool_target = 'pools/' + sticky['sf_id'] + '/'
+        pool_mod = {'properties': {
+            'persistence': ''
+            }
+        }
+
+        self.send_request(pool_target, 'PUT', pool_mod)
+
+        #Delete persistance class instance
+        pers_target = 'persistence/' + sticky['id'] + '/'
+
+        self.send_request(pers_target, 'DELETE')
+
     ''' Not implemented yet
     '''
     def get_statistics(self, serverfarm, rserver):
         logger.debug("Called DummyStingrayDriver.getStatistics(%r, %r).",
                      serverfarm, rserver)
 
-    def create_stickiness(self, sticky):
-        logger.debug("Called DummyStingrayDriver.createStickiness(%r).",
-                     sticky)
-
-    def delete_stickiness(self, sticky):
-        logger.debug("Called DummyStingrayDriver.deleteStickiness(%r).",
-                     sticky)
 
     def import_certificate_or_key(self):
         #Generic FLA licence?! Does nto seem to fit in very well with a
@@ -475,6 +534,10 @@ class StingrayDriver(BaseDriver):
         #No arguments to function?!?!
         logger.debug("Called DummyStingrayDriver.importCertificatesAndKeys().")
 
+    ''' No information on API doc and ssl_proxy not in models.py
+    May have to wait until F5 driver is released before this can be
+    implemented properly
+    '''
     def create_ssl_proxy(self, ssl_proxy):
         logger.debug("Called DummyStingrayDriver.createSSLProxy(%r).",
                      ssl_proxy)
@@ -491,6 +554,8 @@ class StingrayDriver(BaseDriver):
         logger.debug("Called DummyStingrayDriver"
                         ".removeSSLProxyFromVIP(%r, %r).", vip, ssl_proxy)
 
+    '''What on earth does this mean?
+    '''
     def activate_real_server_global(self, rserver):
         logger.debug("Called DummyStingrayDriver.activateRServerGlobal(%r).",
                      rserver)

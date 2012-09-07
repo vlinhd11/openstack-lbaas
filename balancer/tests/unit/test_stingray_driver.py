@@ -172,7 +172,6 @@ class StingrayDriverTestCase(unittest.TestCase):
     def test_real_server_weights(self):
         pass
 
-    @unittest.skip("Known issue with deleting Virtual IPs")
     def test_create_delete_virtual_ips(self):
         self.driver.create_virtual_ip(vip, serverfarm)
         self.driver.create_virtual_ip(vip_2, serverfarm)
