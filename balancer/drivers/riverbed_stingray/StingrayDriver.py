@@ -18,7 +18,8 @@ logger = logging.getLogger(__name__)
 class StingrayDriver(BaseDriver):
     ''' Most (all?) parameters can be found in db.models.py. They all inherit
     from a class which implements the functions allowing for dictionary
-    notation. Using this notation allows for easy unit testing.
+    notation. Using this notation seems to be the convention from the other
+    drivers.
     '''
 
     def __init__(self,  conf,  device_ref):
@@ -104,10 +105,11 @@ class StingrayDriver(BaseDriver):
         except KeyError:
             old_list = ''
 
-        #Stored as space seperated variable string.
+        #Add new node to list (Stored as space seperated variable string)
         new_list = old_list + ' ' + item_to_add
+        new_list = new_list.strip()
 
-        #Add new node to list and put in correct dictionary form
+        #Put in correct dictionary form
         dict_to_add_to['properties'][field_name] = new_list
 
         return dict_to_add_to
@@ -119,21 +121,26 @@ class StingrayDriver(BaseDriver):
         Stingray REST format. If not found just returns dictionary with empty
         list.
         '''
-        #??change to throw item not found exception??
         #TODO: Get new version of REST so list syntax used.
+        #Requests data from Stingray and extract current list
         current_json = self.send_request(target, 'GET')
         current = self.response_to_dict(current_json)
 
         try:
             old_list = current['properties'][field_name]
         except KeyError:
-            #Raise no item found exception?
-            #404 even?
+            logger.debug('Stingray: No list found, returning empty list')
             old_list = ''
 
         #remove item and replace list in dictionary
         #stripping whitespace means deletions eventually leave empty string
-        new_list = old_list.replace(' ' + item_to_remove, '').strip()
+        new_list = old_list.replace(item_to_remove, '').strip()
+
+        #Check something has changed, else log message
+        if new_list == old_list:
+            logger.debug('Stingray: Item  ' + item_to_remove
+                                            + ' not found in list')
+        #Put in dictionary form
         dict_to_remove_from['properties'][field_name] = new_list
 
         return dict_to_remove_from
@@ -149,13 +156,9 @@ class StingrayDriver(BaseDriver):
         options valid for all probes. Then edits this probe with protocol
         specific options. Will ignore any other parameters.
         '''
-        #FIXME: Type error with real data, possibly extra being a
-        #JSONBlob (models.py)
-        pprint(vars(probe))
         target = 'monitors/' + probe['id'] + '/'
         monitor_new = {'properties': {}}
         probe_type = probe['type'].lower()
-
 
         #TODO: Fill in all possible probe types + neccessary translations here
         if probe_type == 'https':
@@ -174,16 +177,12 @@ class StingrayDriver(BaseDriver):
         monitor_new['properties']['type'] = probe_type
 
         #Load all options out of extras field
-        try:
-            given_options = probe['extra']
-        except KeyError:
-            given_options = {}
+        given_options = probe.get('extra')
 
         '''
         Stingray default options: delay, failures, timeout,
         max_response_len, scope, can_use_ssl, use_ssl.
         '''
-        #FIXME: Translatiosn throwing exceptions
         #Perform translation of terms -- meanings must exactly correlate!
         opt_translation_dict = {
             'probeInterval': 'delay',
@@ -193,31 +192,26 @@ class StingrayDriver(BaseDriver):
         }
 
         #Perform copy of given_options, translating where necessary
-        given_options_copy = {}
+        given_options_translated = {}
 
         for opt in given_options:
             if opt in opt_translation_dict:
                 new_key = opt_translation_dict[opt]
-                given_options_copy[new_key] = given_options[opt]
+                given_options_translated[new_key] = given_options[opt]
             else:
-                given_options_copy[opt] = given_options[opt]
-        print(given_options_copy)
-        print(opt_translation_dict)
+                given_options_translated[opt] = given_options[opt]
 
         #Include options in request
         monitor_new['properties']['delay'] = (
-                                    given_options_copy.get('delay', '10'))
+                                given_options_translated.get('delay', '10'))
         monitor_new['properties']['failures'] = (
-                                    given_options_copy.get('failures', '3'))
+                                given_options_translated.get('failures', '3'))
         monitor_new['properties']['timeout'] = (
-                                    given_options_copy.get('timeout', '10'))
+                                given_options_translated.get('timeout', '10'))
         #Create new probe
         self.send_request(target, 'PUT', monitor_new)
 
         #Configure options specific to this node type
-        '''Have assumed if they are using these options that they
-        have used the correct key
-        '''
         #Get possible config options from Stingray
         response_json = self.send_request(target, 'GET')
         response = self.response_to_dict(response_json)
@@ -240,7 +234,7 @@ class StingrayDriver(BaseDriver):
             pass
 
     def delete_probe(self, probe):
-        '''Remove probe
+        '''Remove probe from device
         '''
         target = 'monitors/' + probe['id'] + '/'
         self.send_request(target, 'DELETE')
@@ -254,17 +248,13 @@ class StingrayDriver(BaseDriver):
         ID of serverfarm is used to name node, pool and traffic IP group on
         stingray.
         '''
+        #TODO: serverfarm.loadbalancer
         #Create pool with no attached nodes
         target = 'pools/' + serverfarm['id'] + '/'
         pool_new = {"properties": {
             "monitors": "Ping"
             }
         }
-
-        #Specify algorithm used to balance nodes in the pool
-        #TODO: Fill in all possible algorithm types
-        #if predictor['type'].lower() == 'roundrobin':
-        #    pool_new['properties']['load_balancing!algorithm'] = 'roundrobin'
 
         self.send_request(target, 'PUT', pool_new)
 
@@ -279,13 +269,9 @@ class StingrayDriver(BaseDriver):
             }
         }
 
-        #Specify protocol this Virtual server is using
-        #TODO: Fill in all possible protocol types
-        #FIXME: Where the hell is protocol specified (models, loadbalanver)
-#        if serverfarm.get('protocol').lower() == 'http':
-#            vserver_new['properties']['protocol'] = 'http'
-#            vserver_new['properties']['address'] = '*'
-#            #rules, response rules left out
+        #TODO: Allow selection of protocol and algorithm
+        #FIXME: Where is this sepcified (loadbalancer object in models but
+        #never passed to this module)
 
         self.send_request(target, 'PUT', vserver_new)
 
@@ -319,7 +305,7 @@ class StingrayDriver(BaseDriver):
         #Set up variables for request
         target = 'pools/' + serverfarm['id'] + '/'
         new_node = rserver['address'] + ':' + rserver['port']
-        new_node_weight = new_node + ':' + (rserver.get('weight') or '1')
+        new_node_weight = new_node + ':' + rserver.get('weight', '1')
         pool_mod = {'properties': {
              'nodes': ''
             }
@@ -353,19 +339,23 @@ class StingrayDriver(BaseDriver):
         self.send_request(target, 'PUT', pool_mod)
 
     def add_probe_to_server_farm(self, serverfarm, probe):
-        #TODO:
+        ''' Add the specified probe to the list of monitors for the pool
+        associated with this serverfarm
+        '''
         target = 'pools/' + serverfarm['id'] + '/'
 
         node_mod = {
             'properties': {}
         }
 
+        #Modify dictionary and send request
         self.rest_add_to_list(target, 'monitors', probe['id'], node_mod)
 
         self.send_request(target, 'PUT', node_mod)
 
     def delete_probe_from_server_farm(self, serverfarm, probe):
-        '''
+        ''' Remove the specified probe from the list of monitors for the
+        pool associated with this serverfarm
         '''
         target = 'pools/' + serverfarm['id'] + '/'
 
@@ -373,15 +363,17 @@ class StingrayDriver(BaseDriver):
             'properties': {}
         }
 
-        node_mod = self.rest_delete_from_list(target, 'monitors', probe['id'],
-                                                                        node_mod)
+        #Modify dictionary and send request
+        node_mod = self.rest_delete_from_list(target, 'monitors',
+                                                probe['id'], node_mod)
         self.send_request(target, 'PUT', node_mod)
 
     def create_virtual_ip(self, vip, serverfarm):
         ''' Add the virtual IP to the traffic IP group associated with this
         serverfarm. If no traffic IP exists yet then create it with this IP.
         '''
-        #TODO: Add support for masks and ports, possible in Stingray?
+        #Stingray has no support for masks/ports for virtual IPs
+        #TODO:Custom expanding of a mask to range of individual IP addresses
         target = 'flipper/' + serverfarm['id'] + '/'
 
         try:
@@ -392,6 +384,7 @@ class StingrayDriver(BaseDriver):
             }
             traffic_ip_mod = self.rest_add_to_list(target, 'ipaddresses',
                                             vip['address'], traffic_ip_mod)
+            self.send_request(target, 'PUT', traffic_ip_mod)
         except HTTPError:
             #No traffic IP group exists, create one
             traffic_ip_new = {'properties': {
@@ -401,7 +394,7 @@ class StingrayDriver(BaseDriver):
             }
             self.send_request(target, 'PUT', traffic_ip_new)
 
-            #hook it up to the virtual server
+            #Hook it up to the virtual server
             vserver_target = 'vservers/' + serverfarm['id'] + '/'
             vserver_mod = {'properties': {
                         'address': ('!' + serverfarm['id']),
@@ -441,6 +434,9 @@ class StingrayDriver(BaseDriver):
             self.send_request(target, 'PUT', traffic_ip_mod)
 
     def suspend_real_server(self, serverfarm, rserver):
+        ''' Stop a node from receiving traffic by adding it to disabled
+        node list for the serverfarms associated pool
+        '''
         target = 'pools/' + serverfarm['id'] + '/'
 
         node = rserver['address'] + ':' + rserver['port']
@@ -453,6 +449,9 @@ class StingrayDriver(BaseDriver):
         self.send_request(target, 'PUT', node_mod)
 
     def activate_real_server(self, serverfarm, rserver):
+        ''' Allow node that was suspended to receive traffic again by removing
+        it from serverfarms associated pool's disabled list
+        '''
         target = 'pools/' + serverfarm['id'] + '/'
 
         node = rserver['address'] + ':' + rserver['port']
@@ -460,21 +459,21 @@ class StingrayDriver(BaseDriver):
         node_mod = {
             'properties': {}
         }
-
-        self.rest_delete_from_list(target, 'disabled', probe['id'], node_mod)
+        #Modify dictionary and send requst
+        node_mod = self.rest_delete_from_list(target, 'disabled',
+                                                probe['id'], node_mod)
         self.send_request(target, 'PUT', node_mod)
 
     def create_stickiness(self, sticky):
-        ''' Firstyle create a session persistence class and then associate
+        ''' First create a session persistence class and then associate
         that class with the pool.
         '''
-        pprint (vars(sticky))
         #Create session persistence class
         pers_target = 'persistence/' + sticky['id'] + '/'
 
         pers_mod = {'properties': {}}
 
-        #translate_type
+        #Translate type and set type specific options
         sticky_type = sticky['extra']['persistenceType'].lower()
 
         if sticky_type == 'http_cookie':
@@ -486,9 +485,7 @@ class StingrayDriver(BaseDriver):
                          "(%s)", extra['persistenceType'])
             return
 
-        print(pers_target)
-        pprint(pers_mod)
-
+        #Crete class on Stingray
         self.send_request(pers_target, 'PUT', pers_mod)
 
         #Attach new class to node
@@ -506,12 +503,22 @@ class StingrayDriver(BaseDriver):
         and removes it if so. Then deletes the session persistence class from
         the device.
         '''
-        #Check if class is currently 
+        #Check if class is currently connected to the node
         pool_target = 'pools/' + sticky['sf_id'] + '/'
-        pool_mod = {'properties': {
-            'persistence': ''
+        response = self.send_request(pool_target, 'GET')
+        pool_dict = self.response_to_dict(response)
+
+        if pool_dict['properties'].get('persistence') == sticky['id']:
+            #Set node to using no persistence class
+            pool_mod = {'properties': {
+                'persistence': ''
+                }
             }
-        }
+            self.send_request(pool_target, 'PUT', pool_mod)
+        else:
+            #Different session persistence class being used, do not modify
+            #node
+            pass
 
         self.send_request(pool_target, 'PUT', pool_mod)
 
@@ -525,7 +532,6 @@ class StingrayDriver(BaseDriver):
     def get_statistics(self, serverfarm, rserver):
         logger.debug("Called DummyStingrayDriver.getStatistics(%r, %r).",
                      serverfarm, rserver)
-
 
     def import_certificate_or_key(self):
         #Generic FLA licence?! Does nto seem to fit in very well with a
@@ -568,7 +574,7 @@ class StingrayDriver(BaseDriver):
     '''
     def create_real_server(self, rserver):
         #Create node in our terminology
-        #Do we need to do anythign here?
+        #Do we need to do anythiggn here?
 
         logger.debug("Called StingrayDriver.createRServer(%r).", rserver)
 
