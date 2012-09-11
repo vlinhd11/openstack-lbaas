@@ -157,6 +157,7 @@ class TestHaproxyDriverRemoteSocketOperation (unittest.TestCase):
     def test_get_statistics(self):
         self.assertTrue(self.remote_socket.get_statistics())
 
+
 @unittest.skip()
 class TestHaproxyDeriverAllFunctions (unittest.TestCase):
     def setUp(self):

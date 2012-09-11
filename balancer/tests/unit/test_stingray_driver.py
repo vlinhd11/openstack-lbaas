@@ -181,9 +181,15 @@ class StingrayDriverTestCase(unittest.TestCase):
             found = False
         return found
 
-    def check_not_in_list(self, target, field_name, item_to_find):
-        return not(self.check_in_list(target,
-                                        field_name, item_to_find))
+    def rest_assert_in_list(self, target, field_name, item_to_find):
+
+        in_list = self.check_in_list(target, field_name, item_to_find)
+        self.assertTrue(in_list)
+
+    def rest_assert_not_in_list(self, target, field_name, item_to_find):
+
+        in_list = self.check_in_list(target, field_name, item_to_find)
+        self.assertFalse(in_list)
 
     def check_field_is(self, target, field_name, field_value):
         '''Checks the value fo a field via a HTTP GET request
@@ -197,6 +203,32 @@ class StingrayDriverTestCase(unittest.TestCase):
             found = True
 
         return found
+
+    def rest_assert_field_is(self, target, field_name, field_value):
+        value_correct = self.check_field_is(target, field_name, field_value)
+        self.assertTrue(value_correct)
+
+    def check_exists(self, target):
+        '''Checks for a 404 error message after a HTTP GET to signify
+        the resource no longer exists
+        '''
+        try:
+            self.driver.send_request(target, 'GET')
+            exists = True
+        except HTTPError as e:
+            if e.response.status_code == 404:
+                exists = False
+            else:
+                raise
+        return exists
+
+    def rest_assert_exists(self, target):
+        exists = self.check_exists(target)
+        self.assertTrue(exists)
+
+    def rest_assert_does_not_exist(self, target):
+        exists = self.check_exists(target)
+        self.assertFalse(exists)
 
     def setUp(self):
         self.driver.create_server_farm(serverfarm, predictor)
@@ -221,20 +253,19 @@ class StingrayDriverTestCase(unittest.TestCase):
                                                     rserver_weighted['port'])
 
         #Check rserveris have both been added to node list
-        self.assertTrue(self.check_in_list(target, 'nodes', node))
-        self.assertTrue(self.check_in_list(target, 'nodes', node_weighted))
+        self.rest_assert_in_list(target, 'nodes', node)
+        self.rest_assert_in_list(target, 'nodes', node_weighted)
 
         self.driver.delete_real_server_from_server_farm(serverfarm,
                                                             rserver_weighted)
 
         #Check that first has been successfully deleted
-        self.assertTrue(self.check_not_in_list(target, 'nodes',
-                                                        node_weighted))
+        self.rest_assert_not_in_list(target, 'nodes', node_weighted)
 
         self.driver.delete_real_server_from_server_farm(serverfarm, rserver)
 
         #Check that second has been successfully deleted
-        self.assertTrue(self.check_not_in_list(target, 'nodes', node))
+        self.rest_assert_not_in_list(target, 'nodes', node)
 
     def test_real_server_weights(self):
         self.driver.add_real_server_to_server_farm(serverfarm, rserver)
@@ -251,20 +282,16 @@ class StingrayDriverTestCase(unittest.TestCase):
         target = 'pools/' + serverfarm['id'] + '/'
 
         #Check that weight field has been updated with correct values
-        self.assertTrue(self.check_in_list(target, 'priority!values',
-                                                            weighted_node))
-        self.assertTrue(self.check_in_list(target, 'priority!values',
-                                                        non_weighted_node))
+        self.rest_assert_in_list(target, 'priority!values', weighted_node)
+        self.rest_assert_in_list(target, 'priority!values', non_weighted_node)
 
         self.driver.delete_real_server_from_server_farm(serverfarm, rserver)
         self.driver.delete_real_server_from_server_farm(serverfarm,
                                                         rserver_weighted)
         #Check values do not linger after removed from node list
-        self.assertTrue(self.check_not_in_list(target,
-                                            'priority!values', weighted_node))
-        self.assertTrue(self.check_not_in_list(target,
-                                            'priority!values', non_weighted_node))
-
+        self.rest_assert_not_in_list(target, 'priority!values', weighted_node)
+        self.rest_assert_not_in_list(target, 'priority!values',
+                                                            non_weighted_node)
 
     def test_create_delete_virtual_ips(self):
         self.driver.create_virtual_ip(vip, serverfarm)
@@ -273,10 +300,8 @@ class StingrayDriverTestCase(unittest.TestCase):
         #Check traffic ip group created
         vip_target = 'flipper/' + serverfarm['id'] + '/'
 
-        self.assertTrue(self.check_in_list(vip_target, 'ipaddresses',
-                                                        vip['address']))
-        self.assertTrue(self.check_in_list(vip_target, 'ipaddresses',
-                                                        vip_2['address']))
+        self.rest_assert_in_list(vip_target, 'ipaddresses', vip['address'])
+        self.rest_assert_in_list(vip_target, 'ipaddresses', vip_2['address'])
 
         #Check linked to virtual server
         vserver_target = 'vservers/' + serverfarm['id'] + '/'
@@ -289,24 +314,15 @@ class StingrayDriverTestCase(unittest.TestCase):
         self.driver.delete_virtual_ip(vip)
 
         #Check ip deleted but traffic group still linked
-        self.assertTrue(self.check_not_in_list(vip_target,
-                                'ipaddresses', vip['address']))
-        self.assertTrue(self.check_field_is(vserver_target,
-                                    'address', '!' + serverfarm['id']))
+        self.rest_assert_not_in_list(vip_target, 'ipaddresses', vip['address'])
+        self.rest_assert_field_is(vserver_target, 'address', '!'
+                                                + serverfarm['id'])
 
         self.driver.delete_virtual_ip(vip_2)
 
         #Check traffic group deleted and no longer linked
-        try:
-            self.driver.send_request(vip_target, 'GET')
-            traffic_group_not_found = False
-        except HTTPError as e:
-            if e.response.status_code == 404:
-                traffic_group_not_found = True
-
-        self.assertTrue(traffic_group_not_found)
-        self.assertTrue(self.check_field_is(vserver_target,
-                                    'address', ''))
+        self.rest_assert_does_not_exist(vip_target)
+        self.rest_assert_field_is(vserver_target, 'address', '')
 
     def test_probe_incompatible(self):
         #Test request for unknown probe type ends in failure
@@ -314,66 +330,84 @@ class StingrayDriverTestCase(unittest.TestCase):
 
         target = 'monitors/' + probe_incompatible['id'] + '/'
 
-        try:
-            self.driver.send_request(target, 'GET')
-            failed_properly = False
-        except HTTPError as e:
-            if e.response.status_code == 404:
-                failed_properly = True
-
-        self.assertTrue(failed_properly)
+        self.rest_assert_does_not_exist(target)
 
     def test_probe_add_delete(self):
         self.driver.create_probe(probe_connect)
+        self.driver.create_probe(probe_http)
         self.driver.add_probe_to_server_farm(serverfarm, probe_connect)
+        self.driver.add_probe_to_server_farm(serverfarm, probe_http)
 
         #Check probe created and added to pool
-        probe_target = 'monitors/' + probe_connect['id'] + '/'
-        try:
-            self.driver.send_request(probe_target, 'GET')
-            failed = False
-        except HTTPError as e:
-            if e.response.status_code == 404:
-                failed = True
-            else:
-                raise
-
-        self.assertFalse(failed)
+        probe_target_connect = 'monitors/' + probe_connect['id'] + '/'
+        probe_target_http = 'monitors/' + probe_http['id'] + '/'
+        self.rest_assert_exists(probe_target_connect)
+        self.rest_assert_exists(probe_target_http)
 
         pool_target = 'pools/' + serverfarm['id'] + '/'
-
-        self.assertTrue(self.check_in_list(pool_target, 'monitors',
-                                                    probe_connect['id']))
+        self.rest_assert_in_list(pool_target, 'monitors',
+                                                    probe_connect['id'])
+        self.rest_assert_in_list(pool_target, 'monitors',
+                                                    probe_http['id'])
 
         self.driver.delete_probe_from_server_farm(serverfarm, probe_connect)
+        #Check connect no longer attached to pool but http is
+        self.rest_assert_not_in_list(pool_target, 'monitors',
+                                                        probe_connect['id'])
+        self.rest_assert_in_list(pool_target, 'monitors',
+                                                        probe_http['id'])
+
+        #Check connect no longer exists
         self.driver.delete_probe(probe_connect)
+        self.rest_assert_does_not_exist(probe_target_connect)
+
+        self.driver.delete_probe_from_server_farm(serverfarm, probe_http)
+        self.driver.delete_probe(probe_http)
+
+        #Check http no longer exists or linked
+        self.rest_assert_not_in_list(pool_target, 'monitors',
+                                                        probe_http['id'])
+        self.rest_assert_does_not_exist(probe_target_http)
 
     def test_probe_type_http(self):
         self.driver.create_probe(probe_http)
-        self.driver.add_probe_to_server_farm(serverfarm, probe_http)
 
-        #TODO: Validate correct configuration here
+        #Check correct settings for http probe
+        target = 'monitors/' + probe_http['id'] + '/'
+        self.rest_assert_field_is(target, 'type', 'http')
 
-        self.driver.delete_probe_from_server_farm(serverfarm, probe_http)
         self.driver.delete_probe(probe_http)
 
     def test_probe_type_https(self):
         self.driver.create_probe(probe_https)
         self.driver.add_probe_to_server_farm(serverfarm, probe_https)
 
-        #TODO: Validate correct configuration here
+        #Check correct settings for https probe
+        target = 'monitors/' + probe_https['id'] + '/'
+        self.rest_assert_field_is(target, 'type', 'http')
+        self.rest_assert_field_is(target, 'use_ssl', 'Yes')
 
         self.driver.delete_probe_from_server_farm(serverfarm, probe_https)
         self.driver.delete_probe(probe_https)
 
     def test_stickiness_add_delete(self):
         self.driver.create_stickiness(sticky_cookie)
-        #TODO: Validate correct configuration here
+
+        #Check session persistence class created and linked to virtual server
+        sticky_target = 'persistence/' + sticky_cookie['id'] + '/'
+        self.rest_assert_exists(sticky_target)
+
+        vserver_target = 'pools/' + serverfarm['id'] + '/'
+        self.rest_assert_field_is(vserver_target, 'persistence',
+                                                sticky_cookie['id'])
 
         self.driver.delete_stickiness(sticky_cookie)
 
     def test_stickiness_type_cookie(self):
         self.driver.create_stickiness(sticky_cookie)
-        #TODO: Validate correct configuration here
+
+        #Check correct settings for http cookie persistence
+        target = 'persistence/' + sticky_cookie['id'] + '/'
+        self.rest_assert_field_is(target, 'type', 'sardine')
 
         self.driver.delete_stickiness(sticky_cookie)
