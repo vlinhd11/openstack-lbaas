@@ -256,7 +256,7 @@ def lb_delete_probe(conf, lb_id, probe_id):
     db_api.probe_destroy(conf, probe_id)
     device_driver = drivers.get_device_driver(conf, lb['device_id'])
     with device_driver.request_context() as ctx:
-        commands.remove_probe_from_server_farm(ctx, sf, probe)
+        commands.remove_probe_from_loadbalancer(ctx, sf, probe)
     return probe_id
 
 

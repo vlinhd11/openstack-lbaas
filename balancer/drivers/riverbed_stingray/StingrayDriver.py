@@ -249,6 +249,8 @@ class StingrayDriver(BaseDriver):
         stingray.
         '''
         #TODO: serverfarm.loadbalancer
+        #pprint(serverfarm.loadbalancer)
+
         #Create pool with no attached nodes
         target = 'pools/' + serverfarm['id'] + '/'
         pool_new = {"properties": {

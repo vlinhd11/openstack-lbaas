@@ -326,6 +326,9 @@ def makeDeleteProbeFromLBChain(ctx, balancer, probe):
     remove_probe_from_server_farm(ctx, balancer.sf, probe)
     delete_probe(ctx, probe)
 
+def remove_probe_from_loadbalancer(ctx, sf_ref, probe_ref):
+    remove_probe_from_server_farm(ctx, sf_ref, probe_ref)
+    delete_prove(ctx, probe_ref)
 
 def add_sticky_to_loadbalancer(ctx, balancer, sticky):
     create_sticky(ctx, sticky)
